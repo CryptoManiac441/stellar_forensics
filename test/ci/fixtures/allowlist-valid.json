@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Fixture allowlist for production-audit tests.",
+  "exceptions": [
+    {
+      "id": "GHSA-ffff-ffff-ffff",
+      "package": "left-pad",
+      "reason": "No reachable exploit path in this CLI; replacement scheduled.",
+      "expires": "2099-12-31"
+    }
+  ]
+}

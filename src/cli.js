@@ -14,7 +14,7 @@ const DEFAULT_HORIZON = "https://horizon.stellar.org";
 
 function usage() {
   console.log(`Usage:
-      stellar-forensics scan (--all-drives | --root DIRECTORY) [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--verbose] [--log scan.log]
+      stellar-forensics scan (--all-drives | --root DIRECTORY | --file FILE) [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--verbose] [--log scan.log]
       stellar-forensics verify <secret-file> [--network public|testnet] [--output report.json] [--verbose] [--log verify.log]
       stellar-forensics report <results.json> [--output report.txt] [--verbose] [--log report.log]
 
@@ -271,9 +271,12 @@ async function scanDirectory(directory, matches, seen, logger, passwords, passwo
     const filePath = path.join(directory, entry.name);
     if (entry.name === "$Recycle.Bin" || entry.name === "System Volume Information" || entry.name === "node_modules") continue;
     if (entry.isDirectory()) {
+      const target = options.file ? path.resolve(options.file) : null;
+      if (target && target !== filePath && !target.startsWith(`${filePath}${path.sep}`)) continue;
       await scanDirectory(filePath, matches, seen, logger, passwords, passwordState, decodedSink, options);
       continue;
     }
+    if (options.file && path.resolve(options.file) !== filePath) continue;
     if (!entry.isFile() || seen.has(filePath)) continue;
     seen.add(filePath);
     try {
@@ -335,16 +338,21 @@ async function scanCommand(options) {
     process.stderr.write(`Warning: password discovery failed: ${error instanceof Error ? error.message : String(error)}\n`);
   }
   const scanRoot = options.root ? path.resolve(options.root) : null;
+  const scanFile = options.file ? path.resolve(options.file) : null;
   const allDrives = options["all-drives"] === "true" || options["all-drives"] === true;
-  logger.write("scan_started", { all_drives: allDrives, root: scanRoot });
-  if (!allDrives && !scanRoot) {
-    throw new Error("Scanning requires --all-drives or --root DIRECTORY.");
+  logger.write("scan_started", { all_drives: allDrives, root: scanRoot, file: scanFile });
+  if ([allDrives, Boolean(scanRoot), Boolean(scanFile)].filter(Boolean).length !== 1) {
+    throw new Error("Scanning requires exactly one of --all-drives, --root DIRECTORY, or --file FILE.");
+  }
+  if (scanFile) {
+    const fileStat = await fs.stat(scanFile).catch(() => null);
+    if (!fileStat?.isFile()) throw new Error(`Scan file does not exist or is not a file: ${scanFile}`);
   }
   const matches = [];
   const seen = new Set();
   const passwordState = { loaded: false };
   try {
-    for (const root of scanRoot ? [scanRoot] : windowsRoots()) {
+    for (const root of scanFile ? [path.dirname(scanFile)] : scanRoot ? [scanRoot] : windowsRoots()) {
       process.stderr.write(`Scanning ${root}\n`);
       logger.write("drive_scan_started", { root });
       await scanDirectory(root, matches, seen, logger, passwords, passwordState, decodedSink, options);

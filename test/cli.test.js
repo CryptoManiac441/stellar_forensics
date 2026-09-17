@@ -127,6 +127,10 @@ test("scan accepts a bounded root", () => {
   assert.equal(parsed.positional[0], "scan");
 });
 
+test("scan accepts an exact file target", () => {
+  assert.equal(parseArgs(["scan", "--file", "fixture.rtf"]).options.file, "fixture.rtf");
+});
+
 test("Node engine matches the upgraded Stellar SDK requirement", async () => {
   const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(packageJson.engines.node, ">=22.12.0");

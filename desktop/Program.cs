@@ -18,6 +18,7 @@ internal sealed class MainForm : Form
 {
     private readonly ComboBox command = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox root = new();
+    private readonly TextBox scanFile = new();
     private readonly CheckBox allDrives = new() { Text = "Scan all mounted drives" };
     private readonly TextBox input = new();
     private readonly ComboBox network = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -165,6 +166,7 @@ internal sealed class MainForm : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
         Add(layout, "Operation", command, null, "Choose Scan to discover keys, Verify to check a key file, or Report to format saved results.");
         Add(layout, "Bounded scan root", root, "C:\\Users\\me\\Documents", "Folder to scan. Use this for a controlled test instead of scanning every drive.");
+        Add(layout, "Exact scan file", scanFile, "C:\\path\\file.rtf", "Scan only this one file. This is the safest way to wet-test a specific carrier.");
         Add(layout, "", allDrives, null, "Scan every mounted Windows drive. This can take a long time and may encounter protected folders.");
         Add(layout, "Input file", input, "secrets.txt or results.json", "Used by Verify or Report: select a secret-key file or saved verification JSON. Not used during Scan.");
         Add(layout, "Network", network, null, "Select the Stellar Horizon network to query for account data.");
@@ -210,6 +212,7 @@ internal sealed class MainForm : Form
         var scan = command.SelectedItem?.ToString() == "Scan";
         allDrives.Visible = scan;
         root.Visible = scan;
+        scanFile.Visible = scan;
         verify.Visible = scan;
         passwordSearch.Visible = scan;
         input.Visible = true;
@@ -222,9 +225,10 @@ internal sealed class MainForm : Form
     {
         if (activeProcess is not null) return;
         var selected = command.SelectedItem?.ToString() ?? "Scan";
-        if (selected == "Scan" && !allDrives.Checked && string.IsNullOrWhiteSpace(root.Text))
+        var selectedTargets = (allDrives.Checked ? 1 : 0) + (!string.IsNullOrWhiteSpace(root.Text) ? 1 : 0) + (!string.IsNullOrWhiteSpace(scanFile.Text) ? 1 : 0);
+        if (selected == "Scan" && selectedTargets != 1)
         {
-            MessageBox.Show(this, "Choose a bounded scan root or enable all mounted drives.", "Input required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Choose exactly one scan target: all drives, a bounded folder, or an exact file.", "Input required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         if (selected != "Scan" && string.IsNullOrWhiteSpace(input.Text))
@@ -239,6 +243,7 @@ internal sealed class MainForm : Form
         if (selected == "Scan")
         {
             if (allDrives.Checked) psi.ArgumentList.Add("--all-drives");
+            else if (!string.IsNullOrWhiteSpace(scanFile.Text)) { psi.ArgumentList.Add("--file"); psi.ArgumentList.Add(Path.GetFullPath(scanFile.Text)); }
             else { psi.ArgumentList.Add("--root"); psi.ArgumentList.Add(Path.GetFullPath(root.Text)); }
             if (verify.Checked) psi.ArgumentList.Add("--verify");
             if (passwordSearch.Checked) { psi.ArgumentList.Add("--password-search"); psi.ArgumentList.Add("containers"); }
@@ -326,6 +331,7 @@ internal sealed class MainForm : Form
     private void ResetForm()
     {
         root.Clear();
+        scanFile.Clear();
         input.Clear();
         output.Clear();
         passwordEnv.Clear();

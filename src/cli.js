@@ -341,13 +341,17 @@ async function scanCommand(options) {
 }
 
 async function verifyCandidates(candidates, options, logger, command) {
-  if (candidates.length === 0) {
-    logger.write("verification_skipped", { reason: "no_candidates" });
-    await logger.flush();
-    return;
-  }
   const network = options.network ?? "public";
   const config = networkConfig(network);
+  const output = options.results ?? (command === "scan" ? "scan-results.json" : "results.json");
+  if (candidates.length === 0) {
+    const result = { generated_at: new Date().toISOString(), network, horizon_url: config.horizonUrl, records: [] };
+    await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+    logger.write("verification_skipped", { reason: "no_candidates", output });
+    await logger.flush();
+    console.log(`Wrote 0 verification record(s) to ${output}`);
+    return;
+  }
   const horizon = new Horizon.Server(config.horizonUrl);
   let baseReserveXlm = null;
   try {
@@ -362,7 +366,6 @@ async function verifyCandidates(candidates, options, logger, command) {
     records.push(await verifySecret(candidate, horizon, network, baseReserveXlm, logger));
   }
   const result = { generated_at: new Date().toISOString(), network, horizon_url: config.horizonUrl, records };
-  const output = options.results ?? (command === "scan" ? "scan-results.json" : "results.json");
   try {
     await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
   } catch (error) {

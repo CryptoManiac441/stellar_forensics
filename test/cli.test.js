@@ -103,6 +103,11 @@ test("Horizon failures have distinct statuses", () => {
   assert.equal(horizonFailureStatus(new Error("offline")), "horizon_unavailable");
 });
 
+test("Node engine matches the upgraded Stellar SDK requirement", async () => {
+  const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(packageJson.engines.node, ">=22.12.0");
+});
+
 test("real ZIP containers feed extracted members into the extractor", async () => {
   const { path7za } = await import("7zip-bin");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-test-"));

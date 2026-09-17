@@ -1,0 +1,8 @@
+node_modules/
+results.json
+report.txt
+secrets.txt
+secrets.txt.sources.json
+*.log
+decoded-data.jsonl
+*.jsonl

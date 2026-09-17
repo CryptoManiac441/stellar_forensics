@@ -1,0 +1,21 @@
+{
+  "name": "stellar-forensics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Stellar secret-key discovery and Horizon verification CLI",
+  "type": "module",
+  "bin": {
+    "stellar-forensics": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^14.2.0",
+    "7zip-bin": "^5.2.0"
+  }
+}

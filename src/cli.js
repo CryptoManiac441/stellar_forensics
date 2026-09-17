@@ -53,7 +53,7 @@ export function parseArgs(args) {
     const arg = args[i];
     if (arg.startsWith("--")) {
       const [name, inlineValue] = arg.slice(2).split("=", 2);
-      if (inlineValue === undefined && (name === "all-drives" || name === "help" || name === "verbose")) {
+      if (inlineValue === undefined && (name === "all-drives" || name === "help" || name === "verbose" || name === "verify")) {
         options[name] = true;
         continue;
       }
@@ -100,9 +100,7 @@ async function passwordCandidates(options, logger) {
       container_search: options["password-search"] === "containers"
     }
   });
-  if (unique.length > 0) return unique;
-  const prompted = await promptForPassword();
-  return prompted ? [prompted] : [];
+  return unique;
 }
 
 async function loadContainerPasswords(options, logger, state) {
@@ -111,7 +109,9 @@ async function loadContainerPasswords(options, logger, state) {
   try {
     const candidates = await findPasswordCandidates({ allDrives: true });
     logger.write("container_password_search_completed", { candidate_count: candidates.length });
-    return candidates;
+    if (candidates.length > 0) return candidates;
+    const prompted = await promptForPassword();
+    return prompted ? [prompted] : [];
   } catch (error) {
     logger.write("container_password_search_failed", { error: error instanceof Error ? error.message : String(error) });
     return [];

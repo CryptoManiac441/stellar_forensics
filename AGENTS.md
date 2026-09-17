@@ -45,6 +45,14 @@ node scripts/headed-smoke.mjs --headless
 HEADLESS=1 node scripts/headed-smoke.mjs
 ```
 
+## GitHub Actions
+
+A `functional` workflow was **not** kept on this branch. Opening it failed immediately with:
+
+`The job was not started because your account is locked due to a billing issue.`
+
+That is an external blocker, not a test failure. Run `npm test` locally (evidence: `docs/headed-function/evidence/npm-test.txt`, 32/32).
+
 ## Notes
 
 - Secrets stay local. Horizon receives derived public keys only during verification.

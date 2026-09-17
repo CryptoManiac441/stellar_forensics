@@ -19,7 +19,7 @@ No API schema files. No secrets added.
 4. **D04 (S2)** — header `fs.open` close is in `finally`.
 5. **D05–D07 (S3)** — usage text, deflate unit coverage, renamed invalid-secret test.
 6. Headed-capable script `scripts/headed-smoke.mjs` with `--headed` / `--headless`.
-7. GitHub Actions `functional` workflow: `npm test` + headless headed-smoke (CI is captured stdio, not GUI).
+7. GitHub Actions was attempted (`.github/workflows/functional.yml`) and **removed** after GitHub refused to start the job: account locked for billing. That check was not a product test failure. Local `npm test` remains the evidence.
 
 `--all-drives` behavior left intact but **not executed** in tests.
 

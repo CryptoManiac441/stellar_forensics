@@ -48,6 +48,14 @@ npm run test:headed:headless
 
 Same journeys, stdio piped.
 
+## GitHub Actions (external blocker)
+
+Attempted `functional.yml` on ubuntu-latest. Job did not start:
+
+> The job was not started because your account is locked due to a billing issue.
+
+Workflow file was removed so this PR is not decorated with a misleading red check. Product tests are the local `npm test` / headed-smoke evidence above.
+
 ## What this does not prove
 
 - `scan --all-drives` on Windows

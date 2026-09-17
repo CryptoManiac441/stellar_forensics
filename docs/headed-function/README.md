@@ -14,10 +14,9 @@ This folder is the audit trail for the hybrid headed full-functionality engageme
 | Captured / headless | `npm run test:headed:headless` | Same CLI smoke with pipes instead of inherit. |
 | Browser headed | n/a | No browser UI on `main`. **Not claimed green.** |
 | WinForms headed | n/a on this VM | Windows-only; requires .NET 8 + Windows. **Not claimed green.** |
+| GitHub Actions | n/a | Account billing lock; job never started. Workflow not kept. |
 
 Never treat `npm test` passing as headed-GUI proof.
-
-## Local headed commands
 
 ```bash
 npm test

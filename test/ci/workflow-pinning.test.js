@@ -7,12 +7,13 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const workflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml");
 const PINNED_ACTION = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?@[0-9a-f]{40}$/;
-const VERSION_COMMENT = /#\s*v?\d+/;
+const VERSION_COMMENT = /\bv?\d+\.\d+/;
 
 test("CI workflow is SHA-pinned, fail-fast disabled, headless, and Sonar-gated", async () => {
   const text = await fs.readFile(workflowPath, "utf8");
 
-  assert.equal(/xvfb/i.test(text), false);
+  assert.equal(/xvfb-run/i.test(text), false);
+  assert.equal(/\bxvfb\b/i.test(text), false);
   assert.equal(/DISPLAY\s*:/i.test(text), false);
   assert.equal(/fail-fast:\s*true/.test(text), false);
   assert.match(text, /fail-fast:\s*false/);

@@ -1,6 +1,6 @@
 # Production CI for stellar_forensics.
 # Lanes implemented in this file:
-#   1. Native headless Node tests; no xvfb / virtual display.
+#   1. Native headless Node tests; no virtual display server.
 #   2. OS x Node matrix with fail-fast disabled and post-run diagnostic aggregation.
 #   3. Production-facing npm audit (devDependencies omitted) plus an allowlist tool.
 #   4. Sonar quality gate bound to vars.SONAR_HOST_URL / secrets.SONAR_TOKEN; fail closed.
@@ -25,7 +25,6 @@ env:
   CI: "true"
   HEADED: "0"
   PLAYWRIGHT_HEADLESS: "1"
-  FORCE_XVFB: "0"
 
 jobs:
   test:

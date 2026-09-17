@@ -134,6 +134,14 @@ function derive(secret) {
   return { publicKey: keypair.publicKey(), secret };
 }
 
+export function horizonFailureStatus(error) {
+  const status = error?.response?.status;
+  if (status === 429) return "horizon_rate_limited";
+  if (status >= 500) return "horizon_server_error";
+  if (error?.name === "AbortError" || error?.code === "ETIMEDOUT") return "horizon_timeout";
+  return "horizon_unavailable";
+}
+
 async function verifySecret(candidate, horizon, network, baseReserveXlm, logger) {
   const secret = candidate.secret_key;
   const record = {
@@ -198,8 +206,9 @@ async function verifySecret(candidate, horizon, network, baseReserveXlm, logger)
         record.verification_status = "valid_key_account_not_found";
         logger.write("horizon_account_not_found", { record_id: record.record_id, public_key: publicKey });
       } else {
+        record.verification_status = horizonFailureStatus(error);
         logger.write("horizon_request_failed", { record_id: record.record_id, public_key: publicKey, error: String(error) });
-        throw error;
+        record.error = error instanceof Error ? error.message : String(error);
       }
     }
   } catch (error) {
@@ -230,6 +239,16 @@ export function groupCandidates(matches) {
   return [...grouped.values()];
 }
 
+export function isArchiveSignature(buffer) {
+  const signature = buffer.subarray(0, 16).toString("hex");
+  const zip = ["504b0304", "504b0506", "504b0708"].some((prefix) => signature.startsWith(prefix));
+  const sevenZip = signature.startsWith("377abcaf271c");
+  const rar = signature.startsWith("526172211a07");
+  const gzip = signature.startsWith("1f8b");
+  const tar = buffer.length >= 265 && buffer.toString("ascii", 257, 262) === "ustar";
+  return zip || sevenZip || rar || gzip || tar;
+}
+
 async function scanDirectory(directory, matches, seen, logger, passwords, decodedSink) {
   let entries;
   try {
@@ -249,20 +268,28 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
     seen.add(filePath);
     try {
       const candidates = [];
-      const header = Buffer.alloc(4);
+      const header = Buffer.alloc(512);
       const handle = await fs.open(filePath, "r");
-      await handle.read(header, 0, 4, 0);
+      await handle.read(header, 0, header.length, 0);
       await handle.close();
-      const compressed = header[0] === 0x1f && header[1] === 0x8b;
-      if (compressed) {
-        candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, { passwords, onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }) }));
+      const archive = isArchiveSignature(header);
+      if (archive) {
+        candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {
+          passwords,
+          onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }),
+          onArchiveEvent: (details) => logger.write("archive_extraction", details)
+        }));
       }
-      const stream = compressed ? null : createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+      const stream = archive ? null : createReadStream(filePath, { highWaterMark: 1024 * 1024 });
       let remainder = Buffer.alloc(0);
       if (stream) {
         for await (const chunk of stream) {
           const window = Buffer.concat([remainder, chunk]);
-          candidates.push(...await extractFromBuffer(window, filePath, { passwords: [], onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }) }));
+          candidates.push(...await extractFromBuffer(window, filePath, {
+            passwords: [],
+            allowArchives: false,
+            onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath })
+          }));
           remainder = window.subarray(Math.max(0, window.length - 128));
         }
       }
@@ -322,13 +349,17 @@ async function scanCommand(options) {
 }
 
 async function verifyCandidates(candidates, options, logger, command) {
-  if (candidates.length === 0) {
-    logger.write("verification_skipped", { reason: "no_candidates" });
-    await logger.flush();
-    return;
-  }
   const network = options.network ?? "public";
   const config = networkConfig(network);
+  const output = options.results ?? (command === "scan" ? "scan-results.json" : "results.json");
+  if (candidates.length === 0) {
+    const result = { generated_at: new Date().toISOString(), network, horizon_url: config.horizonUrl, records: [] };
+    await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+    logger.write("verification_skipped", { reason: "no_candidates", output });
+    await logger.flush();
+    console.log(`Wrote 0 verification record(s) to ${output}`);
+    return;
+  }
   const horizon = new Horizon.Server(config.horizonUrl);
   let baseReserveXlm = null;
   try {
@@ -343,7 +374,6 @@ async function verifyCandidates(candidates, options, logger, command) {
     records.push(await verifySecret(candidate, horizon, network, baseReserveXlm, logger));
   }
   const result = { generated_at: new Date().toISOString(), network, horizon_url: config.horizonUrl, records };
-  const output = options.results ?? (command === "scan" ? "scan-results.json" : "results.json");
   try {
     await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
   } catch (error) {

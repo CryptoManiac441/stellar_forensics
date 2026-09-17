@@ -1,10 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync, brotliCompressSync } from "node:zlib";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
-import { groupCandidates } from "../src/cli.js";
+import { groupCandidates, horizonFailureStatus, isArchiveSignature } from "../src/cli.js";
+
+const execFileAsync = promisify(execFile);
 
 test("Stellar SDK derives a stable public key from a secret", () => {
   const secret = "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
@@ -87,6 +94,47 @@ test("scan candidates become structured Horizon-ready records", () => {
   assert.equal(records[0].secret_key, secret);
   assert.deepEqual(records[0].source_paths, ["C:\\carrier.png", "C:\\archive.zip::keys.txt"]);
   assert.deepEqual(records[0].discovery_methods, ["png-chunk", "archive/raw-bytes"]);
+});
+
+test("Horizon failures have distinct statuses", () => {
+  assert.equal(horizonFailureStatus({ response: { status: 429 } }), "horizon_rate_limited");
+  assert.equal(horizonFailureStatus({ response: { status: 503 } }), "horizon_server_error");
+  assert.equal(horizonFailureStatus({ code: "ETIMEDOUT" }), "horizon_timeout");
+  assert.equal(horizonFailureStatus(new Error("offline")), "horizon_unavailable");
+});
+
+test("archive signatures are recognized from the scan header", () => {
+  assert.equal(isArchiveSignature(Buffer.from("504b0304", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("504b0506", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("504b0708", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("377abcaf271c", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("526172211a07", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("1f8b", "hex")), true);
+  const tarHeader = Buffer.alloc(512);
+  tarHeader.write("ustar", 257, "ascii");
+  assert.equal(isArchiveSignature(tarHeader), true);
+  assert.equal(isArchiveSignature(Buffer.from("00000000", "hex")), false);
+});
+
+test("Node engine matches the upgraded Stellar SDK requirement", async () => {
+  const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(packageJson.engines.node, ">=22.12.0");
+});
+
+test("real ZIP containers feed extracted members into the extractor", async () => {
+  const { path7za } = await import("7zip-bin");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-test-"));
+  const member = path.join(root, "keys.txt");
+  const archive = path.join(root, "keys.zip");
+  const secret = Keypair.random().secret();
+  try {
+    await fs.writeFile(member, secret);
+    await execFileAsync(path7za, ["a", "-tzip", archive, member], { windowsHide: true });
+    const results = await extractFromBuffer(await fs.readFile(archive), archive);
+    assert.ok(results.some((result) => result.secret_key === secret && result.source_path.includes("::keys.txt")));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 function chunk(type, data) {

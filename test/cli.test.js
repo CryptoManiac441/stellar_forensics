@@ -9,7 +9,7 @@ import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
-import { groupCandidates, horizonFailureStatus, isArchiveSignature } from "../src/cli.js";
+import { groupCandidates, horizonFailureStatus, isArchiveSignature, parseArgs } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -114,6 +114,11 @@ test("archive signatures are recognized from the scan header", () => {
   tarHeader.write("ustar", 257, "ascii");
   assert.equal(isArchiveSignature(tarHeader), true);
   assert.equal(isArchiveSignature(Buffer.from("00000000", "hex")), false);
+});
+
+test("password search requires an explicit scope", () => {
+  assert.deepEqual(parseArgs(["scan", "--password-search", "containers"]).options["password-search"], "containers");
+  assert.throws(() => parseArgs(["scan", "--password-search"]));
 });
 
 test("Node engine matches the upgraded Stellar SDK requirement", async () => {

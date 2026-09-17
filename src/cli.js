@@ -14,7 +14,7 @@ const DEFAULT_HORIZON = "https://horizon.stellar.org";
 
 function usage() {
   console.log(`Usage:
-      stellar-forensics scan --all-drives [--verify] [--network public|testnet] [--password-search] [--password-env NAME] [--output secrets.txt] [--verbose] [--log scan.log]
+      stellar-forensics scan --all-drives [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--verbose] [--log scan.log]
       stellar-forensics verify <secret-file> [--network public|testnet] [--output report.json] [--verbose] [--log verify.log]
       stellar-forensics report <results.json> [--output report.txt] [--verbose] [--log report.log]
 
@@ -46,14 +46,14 @@ function usage() {
     };
   }
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const options = {};
   const positional = [];
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg.startsWith("--")) {
       const [name, inlineValue] = arg.slice(2).split("=", 2);
-      if (inlineValue === undefined && (name === "all-drives" || name === "help" || name === "verbose")) {
+      if (inlineValue === undefined && (name === "all-drives" || name === "help" || name === "verbose" || name === "verify")) {
         options[name] = true;
         continue;
       }
@@ -91,21 +91,31 @@ async function passwordCandidates(options, logger) {
   if (options["password-file"]) {
     candidates.push(...await findPasswordCandidates({ files: [path.resolve(options["password-file"])] }));
   }
-  if (options["password-search"] === true || options["password-search"] === "true") {
-    candidates.push(...await findPasswordCandidates({ allDrives: true }));
-  }
   const unique = [...new Set(candidates)];
   logger.write("password_candidates_found", {
     count: unique.length,
     sources: {
       environment: candidates.length > 0,
       password_file: Boolean(options["password-file"]),
-      all_drives: options["password-search"] === true || options["password-search"] === "true"
+      container_search: options["password-search"] === "containers"
     }
   });
-  if (unique.length > 0) return unique;
-  const prompted = await promptForPassword();
-  return prompted ? [prompted] : [];
+  return unique;
+}
+
+async function loadContainerPasswords(options, logger, state) {
+  if (options["password-search"] !== "containers" || state.loaded) return [];
+  state.loaded = true;
+  try {
+    const candidates = await findPasswordCandidates({ allDrives: true });
+    logger.write("container_password_search_completed", { candidate_count: candidates.length });
+    if (candidates.length > 0) return candidates;
+    const prompted = await promptForPassword();
+    return prompted ? [prompted] : [];
+  } catch (error) {
+    logger.write("container_password_search_failed", { error: error instanceof Error ? error.message : String(error) });
+    return [];
+  }
 }
 
 async function promptForPassword() {
@@ -249,7 +259,7 @@ export function isArchiveSignature(buffer) {
   return zip || sevenZip || rar || gzip || tar;
 }
 
-async function scanDirectory(directory, matches, seen, logger, passwords, decodedSink) {
+async function scanDirectory(directory, matches, seen, logger, passwords, passwordState, decodedSink, options) {
   let entries;
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
@@ -261,7 +271,7 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
     const filePath = path.join(directory, entry.name);
     if (entry.name === "$Recycle.Bin" || entry.name === "System Volume Information" || entry.name === "node_modules") continue;
     if (entry.isDirectory()) {
-      await scanDirectory(filePath, matches, seen, logger, passwords, decodedSink);
+      await scanDirectory(filePath, matches, seen, logger, passwords, passwordState, decodedSink, options);
       continue;
     }
     if (!entry.isFile() || seen.has(filePath)) continue;
@@ -274,8 +284,9 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
       await handle.close();
       const archive = isArchiveSignature(header);
       if (archive) {
+        const containerPasswords = [...passwords, ...await loadContainerPasswords(options, logger, passwordState)];
         candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {
-          passwords,
+          passwords: [...new Set(containerPasswords)],
           onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }),
           onArchiveEvent: (details) => logger.write("archive_extraction", details)
         }));
@@ -310,6 +321,9 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
 async function scanCommand(options) {
   const logger = createLogger(options, "scan");
   const decodedSink = createDecodedSink(options);
+  if (options["password-search"] !== undefined && options["password-search"] !== "containers") {
+    throw new Error('Invalid --password-search scope. Use "--password-search containers".');
+  }
   let passwords = [];
   try {
     passwords = await passwordCandidates(options, logger);
@@ -323,10 +337,11 @@ async function scanCommand(options) {
   }
   const matches = [];
   const seen = new Set();
+  const passwordState = { loaded: false };
   for (const root of windowsRoots()) {
     process.stderr.write(`Scanning ${root}\n`);
     logger.write("drive_scan_started", { root });
-    await scanDirectory(root, matches, seen, logger, passwords, decodedSink);
+    await scanDirectory(root, matches, seen, logger, passwords, passwordState, decodedSink, options);
   }
   const unique = groupCandidates(matches);
   const output = options.output ?? "secrets.txt";

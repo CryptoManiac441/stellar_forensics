@@ -280,8 +280,11 @@ async function scanDirectory(directory, matches, seen, logger, passwords, passwo
       const candidates = [];
       const header = Buffer.alloc(512);
       const handle = await fs.open(filePath, "r");
-      await handle.read(header, 0, header.length, 0);
-      await handle.close();
+      try {
+        await handle.read(header, 0, header.length, 0);
+      } finally {
+        await handle.close();
+      }
       const archive = isArchiveSignature(header);
       if (archive) {
         const containerPasswords = [...passwords, ...await loadContainerPasswords(options, logger, passwordState)];

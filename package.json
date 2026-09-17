@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/cli.js",
+    "start:web": "node src/server.js",
     "test": "node --test"
   },
   "engines": {

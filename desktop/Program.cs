@@ -75,7 +75,7 @@ internal sealed class MainForm : Form
         Add(layout, "Operation", command, null, "Choose Scan to discover keys, Verify to check a key file, or Report to format saved results.");
         Add(layout, "Bounded scan root", root, "C:\\Users\\me\\Documents", "Folder to scan. Use this for a controlled test instead of scanning every drive.");
         Add(layout, "", allDrives, null, "Scan every mounted Windows drive. This can take a long time and may encounter protected folders.");
-        Add(layout, "Input file", input, "secrets.txt or results.json", "File used by Verify or Report. Verify reads secret keys; Report reads verification JSON.");
+        Add(layout, "Input file", input, "secrets.txt or results.json", "Used by Verify or Report: select a secret-key file or saved verification JSON. Not used during Scan.");
         Add(layout, "Network", network, null, "Select the Stellar Horizon network to query for account data.");
         Add(layout, "Output file", output, "C:\\temp\\output.txt", "Where the selected operation writes its main text or JSON output.");
         Add(layout, "", verify, null, "After scanning, derive public keys locally and query Horizon without sending secret keys.");
@@ -121,7 +121,8 @@ internal sealed class MainForm : Form
         root.Visible = scan;
         verify.Visible = scan;
         passwordSearch.Visible = scan;
-        input.Visible = !scan;
+        input.Visible = true;
+        input.Enabled = !scan;
         results.Visible = scan;
         decodedLog.Visible = scan;
     }

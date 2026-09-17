@@ -17,6 +17,7 @@ internal static class Program
 internal sealed class MainForm : Form
 {
     private readonly ComboBox command = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly TextBox projectName = new();
     private readonly TextBox root = new();
     private readonly TextBox scanFile = new();
     private readonly CheckBox allDrives = new() { Text = "Scan all mounted drives" };
@@ -54,14 +55,16 @@ internal sealed class MainForm : Form
         Font = new Font("Segoe UI", 9F);
         command.Items.AddRange(["Scan", "Verify", "Report"]);
         command.SelectedIndex = 0;
+        projectName.Text = "Stellar Forensics";
         network.Items.AddRange(["public", "testnet"]);
         network.SelectedIndex = 0;
-        defaultOutputPath = Path.Combine(desktopOutputFolder, "secrets.txt");
-        defaultLogPath = Path.Combine(desktopOutputFolder, "scan.log");
+        defaultOutputPath = Path.Combine(GetProjectFolder(), "secrets.txt");
+        defaultLogPath = Path.Combine(GetProjectFolder(), "scan.log");
         output.Text = defaultOutputPath;
-        decodedLog.Text = Path.Combine(desktopOutputFolder, "decoded-data.jsonl");
+        decodedLog.Text = Path.Combine(GetProjectFolder(), "decoded-data.jsonl");
         log.Text = defaultLogPath;
-        results.Text = Path.Combine(desktopOutputFolder, "scan-results.json");
+        results.Text = Path.Combine(GetProjectFolder(), "scan-results.json");
+        projectName.TextChanged += (_, _) => UpdateProjectFolderPaths();
         run.Click += async (_, _) => await RunOperationAsync();
         command.SelectedIndexChanged += (_, _) => UpdateCommandView();
         allDrives.CheckedChanged += (_, _) => root.Enabled = !allDrives.Checked;
@@ -173,6 +176,7 @@ internal sealed class MainForm : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+        Add(layout, "Project name", projectName, "Stellar Forensics", "Name for this investigation. A dedicated folder with this name is created on the Desktop for default results and logs.");
         Add(layout, "Operation", command, null, "Choose Scan to discover keys, Verify to check a key file, or Report to format saved results.");
         Add(layout, "Bounded scan root", root, "C:\\Users\\me\\Documents", "Folder to scan. Use this for a controlled test instead of scanning every drive.");
         Add(layout, "Exact scan file", scanFile, "C:\\path\\file.rtf", "Scan only this one file. This is the safest way to wet-test a specific carrier.");
@@ -235,6 +239,8 @@ internal sealed class MainForm : Form
     {
         if (activeProcess is not null) return;
         var selected = command.SelectedItem?.ToString() ?? "Scan";
+        var projectFolder = GetProjectFolder();
+        Directory.CreateDirectory(projectFolder);
         ApplyDefaultOutputPaths(selected);
         var selectedTargets = (allDrives.Checked ? 1 : 0) + (!string.IsNullOrWhiteSpace(root.Text) ? 1 : 0) + (!string.IsNullOrWhiteSpace(scanFile.Text) ? 1 : 0);
         if (selected == "Scan" && selectedTargets != 1)
@@ -301,22 +307,49 @@ internal sealed class MainForm : Form
 
     private void UpdateCommandDefaults(string selected)
     {
-        var nextOutput = Path.Combine(desktopOutputFolder, selected == "Scan" ? "secrets.txt" : selected == "Verify" ? "results.json" : "report.txt");
-        var nextLog = Path.Combine(desktopOutputFolder, selected == "Scan" ? "scan.log" : selected == "Verify" ? "verify.log" : "report.log");
+        var nextOutput = Path.Combine(GetProjectFolder(), selected == "Scan" ? "secrets.txt" : selected == "Verify" ? "results.json" : "report.txt");
+        var nextLog = Path.Combine(GetProjectFolder(), selected == "Scan" ? "scan.log" : selected == "Verify" ? "verify.log" : "report.log");
         if (string.IsNullOrWhiteSpace(output.Text) || output.Text == defaultOutputPath) output.Text = nextOutput;
         if (string.IsNullOrWhiteSpace(log.Text) || log.Text == defaultLogPath) log.Text = nextLog;
         defaultOutputPath = nextOutput;
         defaultLogPath = nextLog;
     }
 
+    private void UpdateProjectFolderPaths()
+    {
+        var oldProjectFolder = Path.GetDirectoryName(defaultOutputPath) ?? desktopOutputFolder;
+        var projectFolder = GetProjectFolder();
+        var defaults = new[]
+        {
+            (output, Path.GetFileName(defaultOutputPath)),
+            (decodedLog, "decoded-data.jsonl"),
+            (log, Path.GetFileName(defaultLogPath)),
+            (results, "scan-results.json")
+        };
+        foreach (var (field, fileName) in defaults)
+        {
+            if (string.IsNullOrWhiteSpace(field.Text) || field.Text.StartsWith(oldProjectFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                field.Text = Path.Combine(projectFolder, fileName);
+        }
+        defaultOutputPath = Path.Combine(projectFolder, Path.GetFileName(defaultOutputPath));
+        defaultLogPath = Path.Combine(projectFolder, Path.GetFileName(defaultLogPath));
+    }
+
     private void SetDefault(TextBox field, string fileName)
     {
-        if (string.IsNullOrWhiteSpace(field.Text)) field.Text = Path.Combine(desktopOutputFolder, fileName);
+        if (string.IsNullOrWhiteSpace(field.Text)) field.Text = Path.Combine(GetProjectFolder(), fileName);
     }
 
     private string ToDesktopPath(string value)
     {
-        return string.IsNullOrWhiteSpace(value) ? desktopOutputFolder : Path.IsPathRooted(value) ? value : Path.Combine(desktopOutputFolder, value);
+        return string.IsNullOrWhiteSpace(value) ? GetProjectFolder() : Path.IsPathRooted(value) ? value : Path.Combine(GetProjectFolder(), value);
+    }
+
+    private string GetProjectFolder()
+    {
+        var name = string.IsNullOrWhiteSpace(projectName.Text) ? "Stellar Forensics" : projectName.Text.Trim();
+        foreach (var invalid in Path.GetInvalidFileNameChars()) name = name.Replace(invalid, '_');
+        return Path.Combine(desktopOutputFolder, name);
     }
 
     private void ShowCompletionDialog(string operation)

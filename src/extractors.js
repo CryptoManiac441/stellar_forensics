@@ -1,3 +1,12 @@
+import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { path7za as bundledSevenZipPath } from "7zip-bin";
+
 const SECRET_PATTERN = /\bS[A-Z2-7]{55}\b/g;
 
 export const SUPPORTED_CARRIERS = [
@@ -125,17 +134,29 @@ export const EXTRACTOR_REGISTRY = [
 
 const execFileAsync = promisify(execFile);
 
-async function sevenZipPath() {
+export async function resolveSevenZipPath() {
   try {
-    const module = await import("7zip-bin");
-    return module.path7za;
+    const executable = bundledSevenZipPath;
+    if (!executable) return null;
+    if (executable !== "7za" && process.platform !== "win32") {
+      try {
+        await fs.access(executable, fsConstants.X_OK);
+      } catch {
+        try {
+          await fs.chmod(executable, 0o755);
+        } catch {
+          // execFile will surface EACCES if the binary remains non-executable.
+        }
+      }
+    }
+    return executable;
   } catch {
     return null;
   }
 }
 
 async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded, onArchiveEvent) {
-  const executable = await sevenZipPath();
+  const executable = await resolveSevenZipPath();
   if (!executable) {
     onArchiveEvent?.({ source: sourcePath, status: "extractor_unavailable" });
     return [];
@@ -219,9 +240,3 @@ export async function extractFromBuffer(buffer, sourcePath, options = {}) {
   return [...results, ...compressed, ...archiveResults]
     .map((result) => ({ ...result, source_path: result.source_path ?? sourcePath }));
 }
-import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";

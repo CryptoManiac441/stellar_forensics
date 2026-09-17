@@ -1,19 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gzipSync, brotliCompressSync } from "node:zlib";
+import { gzipSync, brotliCompressSync, deflateSync } from "node:zlib";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
-import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
+import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS, resolveSevenZipPath } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
 import { groupCandidates, horizonFailureStatus, isArchiveSignature, parseArgs } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
-test("Stellar SDK derives a stable public key from a secret", () => {
+test("an invalid Stellar secret is rejected by the SDK", () => {
   const secret = "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
   assert.throws(() => Keypair.fromSecret(secret));
 });
@@ -61,7 +62,11 @@ test("PNG, JPEG, and WAV metadata carriers are inspected", async () => {
 
 test("compressed payloads are decompressed and scanned", async () => {
   const secret = Keypair.random().secret();
-  for (const [buffer, prefix] of [[gzipSync(Buffer.from(secret)), "gzip"], [brotliCompressSync(Buffer.from(secret)), "brotli"]]) {
+  for (const [buffer, prefix] of [
+    [gzipSync(Buffer.from(secret)), "gzip"],
+    [deflateSync(Buffer.from(secret)), "deflate"],
+    [brotliCompressSync(Buffer.from(secret)), "brotli"]
+  ]) {
     assert.ok((await extractFromBuffer(buffer, "payload.bin")).some((result) => result.secret_key === secret && result.extractor.startsWith(prefix)));
   }
 });
@@ -121,13 +126,28 @@ test("password search requires an explicit scope", () => {
   assert.throws(() => parseArgs(["scan", "--password-search"]));
 });
 
+test("scan accepts a bounded root or exact file", () => {
+  assert.equal(parseArgs(["scan", "--root", "fixture"]).options.root, "fixture");
+  assert.equal(parseArgs(["scan", "--file", "fixture.rtf"]).options.file, "fixture.rtf");
+});
+
 test("Node engine matches the upgraded Stellar SDK requirement", async () => {
   const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(packageJson.engines.node, ">=22.12.0");
 });
 
+test("bundled 7za is repaired when the install leaves it non-executable", async () => {
+  if (process.platform === "win32") return;
+  const executable = await resolveSevenZipPath();
+  assert.ok(executable);
+  await fs.chmod(executable, 0o644);
+  const repaired = await resolveSevenZipPath();
+  await fs.access(repaired, fsConstants.X_OK);
+});
+
 test("real ZIP containers feed extracted members into the extractor", async () => {
-  const { path7za } = await import("7zip-bin");
+  const path7za = await resolveSevenZipPath();
+  assert.ok(path7za);
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-test-"));
   const member = path.join(root, "keys.txt");
   const archive = path.join(root, "keys.zip");

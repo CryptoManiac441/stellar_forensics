@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-09-17T22:56:27.165Z",
+  "display": ":1",
+  "headed": true,
+  "headless": false,
+  "command": "node scripts/headed-smoke.mjs",
+  "note": "stdio inherited (terminal-headed). This is not a browser or WinForms GUI session.",
+  "steps": [
+    {
+      "args": [
+        "--help"
+      ],
+      "code": 0,
+      "signal": null
+    },
+    {
+      "args": [
+        "scan",
+        "--file",
+        "/tmp/stellar-forensics-headed-yr30gw/carrier.txt",
+        "--output",
+        "/tmp/stellar-forensics-headed-yr30gw/secrets.txt",
+        "--decoded-log",
+        "/tmp/stellar-forensics-headed-yr30gw/decoded.jsonl",
+        "--verbose",
+        "--log",
+        "/tmp/stellar-forensics-headed-yr30gw/scan.log"
+      ],
+      "code": 0,
+      "signal": null
+    },
+    {
+      "args": [
+        "verify",
+        "/tmp/stellar-forensics-headed-yr30gw/secrets.txt",
+        "--network",
+        "testnet",
+        "--output",
+        "/tmp/stellar-forensics-headed-yr30gw/results.json"
+      ],
+      "code": 0,
+      "signal": null
+    },
+    {
+      "args": [
+        "report",
+        "/tmp/stellar-forensics-headed-yr30gw/results.json",
+        "--output",
+        "/tmp/stellar-forensics-headed-yr30gw/report.txt"
+      ],
+      "code": 0,
+      "signal": null
+    }
+  ],
+  "fixture_root": "/tmp/stellar-forensics-headed-yr30gw"
+}

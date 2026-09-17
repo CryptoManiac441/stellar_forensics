@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import readline from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Keypair, Horizon } from "@stellar/stellar-sdk";
@@ -14,7 +15,7 @@ const DEFAULT_HORIZON = "https://horizon.stellar.org";
 
 function usage() {
   console.log(`Usage:
-      stellar-forensics scan --all-drives [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--verbose] [--log scan.log]
+      stellar-forensics scan (--all-drives | --root DIRECTORY | --file FILE) [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--results scan-results.json] [--decoded-log decoded-data.jsonl] [--verbose] [--log scan.log]
       stellar-forensics verify <secret-file> [--network public|testnet] [--output report.json] [--verbose] [--log verify.log]
       stellar-forensics report <results.json> [--output report.txt] [--verbose] [--log report.log]
 
@@ -23,8 +24,9 @@ function usage() {
   Supported carriers: ${SUPPORTED_CARRIERS.join(", ")}.
   All readable virtual-machine disk files are scanned as raw bytes, including
   VMDK, VDI, VHD, VHDX, QCOW2, IMG, ISO, and OVA files.
+  Use --root or --file for a bounded scan. --all-drives walks every Windows drive letter.
   Secrets are read locally and are never sent to Horizon.`);
-  }
+}
 
   function createDecodedSink(options) {
     const output = options["decoded-log"] ?? "decoded-data.jsonl";
@@ -120,7 +122,6 @@ async function loadContainerPasswords(options, logger, state) {
 
 async function promptForPassword() {
   if (!process.stdin.isTTY) return null;
-  const readline = await import("node:readline/promises");
   const terminal = readline.createInterface({ input: process.stdin, output: process.stderr });
   const password = await terminal.question("Container password (input is not logged): ");
   terminal.close();
@@ -274,93 +275,128 @@ async function scanDirectory(directory, matches, seen, logger, passwords, passwo
       await scanDirectory(filePath, matches, seen, logger, passwords, passwordState, decodedSink, options);
       continue;
     }
-    if (!entry.isFile() || seen.has(filePath)) continue;
-    seen.add(filePath);
+    if (!entry.isFile()) continue;
+    await scanOneFile(filePath, matches, seen, logger, passwords, passwordState, decodedSink, options);
+  }
+}
+
+async function scanOneFile(filePath, matches, seen, logger, passwords, passwordState, decodedSink, options) {
+  if (seen.has(filePath)) return;
+  seen.add(filePath);
+  const required = Boolean(options.file) && path.resolve(options.file) === filePath;
+  try {
+    const candidates = [];
+    const header = Buffer.alloc(512);
+    const handle = await fs.open(filePath, "r");
     try {
-      const candidates = [];
-      const header = Buffer.alloc(512);
-      const handle = await fs.open(filePath, "r");
       await handle.read(header, 0, header.length, 0);
+    } finally {
       await handle.close();
-      const archive = isArchiveSignature(header);
-      if (archive) {
-        const containerPasswords = [...passwords, ...await loadContainerPasswords(options, logger, passwordState)];
-        candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {
-          passwords: [...new Set(containerPasswords)],
-          onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }),
-          onArchiveEvent: (details) => logger.write("archive_extraction", details)
-        }));
-      }
-      const stream = archive ? null : createReadStream(filePath, { highWaterMark: 1024 * 1024 });
-      let remainder = Buffer.alloc(0);
-      if (stream) {
-        for await (const chunk of stream) {
-          const window = Buffer.concat([remainder, chunk]);
-          candidates.push(...await extractFromBuffer(window, filePath, {
-            passwords: [],
-            allowArchives: false,
-            onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath })
-          }));
-          remainder = window.subarray(Math.max(0, window.length - 128));
-        }
-      }
-      const uniqueCandidates = new Map(candidates.map((candidate) => [`${candidate.secret_key}\0${candidate.extractor}\0${candidate.offset ?? ""}`, candidate]));
-      for (const candidate of uniqueCandidates.values()) {
-        matches.push({ ...candidate, discovery_method: candidate.extractor });
-        logger.write("candidate_discovered", { ...candidate, discovery_method: candidate.extractor });
-      }
-    } catch (error) {
-      logger.write("file_scan_failed", {
-        file_path: filePath,
-        error: error instanceof Error ? error.message : String(error)
-      });
     }
+    const archive = isArchiveSignature(header);
+    if (archive) {
+      const containerPasswords = [...passwords, ...await loadContainerPasswords(options, logger, passwordState)];
+      candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {
+        passwords: [...new Set(containerPasswords)],
+        onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }),
+        onArchiveEvent: (details) => logger.write("archive_extraction", details)
+      }));
+    }
+    const stream = archive ? null : createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+    let remainder = Buffer.alloc(0);
+    if (stream) {
+      for await (const chunk of stream) {
+        const window = Buffer.concat([remainder, chunk]);
+        candidates.push(...await extractFromBuffer(window, filePath, {
+          passwords: [],
+          allowArchives: false,
+          onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath })
+        }));
+        remainder = window.subarray(Math.max(0, window.length - 128));
+      }
+    }
+    const uniqueCandidates = new Map(candidates.map((candidate) => [`${candidate.secret_key}\0${candidate.extractor}\0${candidate.offset ?? ""}`, candidate]));
+    for (const candidate of uniqueCandidates.values()) {
+      matches.push({ ...candidate, discovery_method: candidate.extractor });
+      logger.write("candidate_discovered", { ...candidate, discovery_method: candidate.extractor });
+    }
+  } catch (error) {
+    logger.write("file_scan_failed", {
+      file_path: filePath,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    if (required) throw error;
   }
 }
 
 async function scanCommand(options) {
   const logger = createLogger(options, "scan");
   const decodedSink = createDecodedSink(options);
-  if (options["password-search"] !== undefined && options["password-search"] !== "containers") {
-    throw new Error('Invalid --password-search scope. Use "--password-search containers".');
-  }
-  let passwords = [];
   try {
-    passwords = await passwordCandidates(options, logger);
-  } catch (error) {
-    logger.write("password_discovery_failed", { error: error instanceof Error ? error.message : String(error) });
-    process.stderr.write(`Warning: password discovery failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  }
-  logger.write("scan_started", { all_drives: options["all-drives"] === true });
-  if (options["all-drives"] !== "true" && options["all-drives"] !== true) {
-    throw new Error("Scanning requires --all-drives.");
-  }
-  const matches = [];
-  const seen = new Set();
-  const passwordState = { loaded: false };
-  for (const root of windowsRoots()) {
-    process.stderr.write(`Scanning ${root}\n`);
-    logger.write("drive_scan_started", { root });
-    await scanDirectory(root, matches, seen, logger, passwords, passwordState, decodedSink, options);
-  }
-  const unique = groupCandidates(matches);
-  const output = options.output ?? "secrets.txt";
-  try {
+    if (options["password-search"] !== undefined && options["password-search"] !== "containers") {
+      throw new Error('Invalid --password-search scope. Use "--password-search containers".');
+    }
+    if (options["password-file"]) {
+      const passwordFile = path.resolve(options["password-file"]);
+      const passwordStat = await fs.stat(passwordFile).catch(() => null);
+      if (!passwordStat?.isFile()) {
+        throw new Error(`Password file does not exist or is not a file: ${passwordFile}`);
+      }
+    }
+    let passwords = [];
+    try {
+      passwords = await passwordCandidates(options, logger);
+    } catch (error) {
+      logger.write("password_discovery_failed", { error: error instanceof Error ? error.message : String(error) });
+      process.stderr.write(`Warning: password discovery failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+    const scanRoot = options.root ? path.resolve(options.root) : null;
+    const scanFile = options.file ? path.resolve(options.file) : null;
+    const allDrives = options["all-drives"] === "true" || options["all-drives"] === true;
+    logger.write("scan_started", { all_drives: allDrives, root: scanRoot, file: scanFile });
+    if ([allDrives, Boolean(scanRoot), Boolean(scanFile)].filter(Boolean).length !== 1) {
+      throw new Error("Scanning requires exactly one of --all-drives, --root DIRECTORY, or --file FILE.");
+    }
+    if (scanFile) {
+      const fileStat = await fs.stat(scanFile).catch(() => null);
+      if (!fileStat?.isFile()) throw new Error(`Scan file does not exist or is not a file: ${scanFile}`);
+    }
+    if (scanRoot) {
+      const rootStat = await fs.stat(scanRoot).catch(() => null);
+      if (!rootStat?.isDirectory()) throw new Error(`Scan root does not exist or is not a directory: ${scanRoot}`);
+    }
+    const matches = [];
+    const seen = new Set();
+    const passwordState = { loaded: false };
+    if (scanFile) {
+      process.stderr.write(`Scanning ${scanFile}\n`);
+      logger.write("drive_scan_started", { root: scanFile });
+      await scanOneFile(scanFile, matches, seen, logger, passwords, passwordState, decodedSink, options);
+    } else {
+      for (const root of scanRoot ? [scanRoot] : windowsRoots()) {
+        process.stderr.write(`Scanning ${root}\n`);
+        logger.write("drive_scan_started", { root });
+        await scanDirectory(root, matches, seen, logger, passwords, passwordState, decodedSink, options);
+      }
+    }
+    const unique = groupCandidates(matches);
+    const output = options.output ?? "secrets.txt";
     await fs.writeFile(output, `${unique.map((match) => match.secret_key).join("\n")}\n`, "utf8");
     await fs.writeFile(`${output}.sources.json`, `${JSON.stringify(unique, null, 2)}\n`, "utf8");
+    if (options.verify === true || options.verify === "true") {
+      await verifyCandidates(unique, options, logger, "scan");
+    }
+    logger.write("scan_completed", { output, candidate_count: unique.length, matches: unique });
+    console.log(`Found ${unique.length} candidate(s); wrote ${output}`);
+    console.log(`Wrote decoded data log to ${decodedSink.output}`);
+    if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
   } catch (error) {
-    logger.write("scan_output_failed", { output, error: error instanceof Error ? error.message : String(error) });
+    logger.write("scan_failed", { error: error instanceof Error ? error.message : String(error) });
     throw error;
+  } finally {
+    await decodedSink.flush();
+    await logger.flush();
   }
-  if (options.verify === true || options.verify === "true") {
-    await verifyCandidates(unique, options, logger, "scan");
-  }
-  logger.write("scan_completed", { output, candidate_count: unique.length, matches: unique });
-  await decodedSink.flush();
-  await logger.flush();
-  console.log(`Found ${unique.length} candidate(s); wrote ${output}`);
-  console.log(`Wrote decoded data log to ${decodedSink.output}`);
-  if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
 }
 
 async function verifyCandidates(candidates, options, logger, command) {
@@ -402,47 +438,52 @@ async function verifyCandidates(candidates, options, logger, command) {
 
 async function verifyCommand(secretFile, options) {
   const logger = createLogger(options, "verify");
-  logger.write("verification_started", { secret_file: secretFile });
-  const network = options.network ?? "public";
-  const config = networkConfig(network);
-  let text;
   try {
-    text = await fs.readFile(secretFile, "utf8");
+    logger.write("verification_started", { secret_file: secretFile });
+    const network = options.network ?? "public";
+    const config = networkConfig(network);
+    let text;
+    try {
+      text = await fs.readFile(secretFile, "utf8");
+    } catch (error) {
+      logger.write("secret_file_read_failed", { secret_file: secretFile, error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+    const secrets = readSecrets(text).map((secret) => ({ secret_key: secret, source_paths: [secretFile], discovery_methods: ["input_file"] }));
+    if (secrets.length === 0) throw new Error("No secret keys were found in the input file.");
+    logger.write("secrets_loaded", { count: secrets.length });
+    const horizon = new Horizon.Server(config.horizonUrl);
+    let baseReserveXlm = null;
+    try {
+      const root = await (await fetch(`${config.horizonUrl}/`)).json();
+      if (root.base_reserve_in_stroops) baseReserveXlm = Number(root.base_reserve_in_stroops) / 10_000_000;
+      logger.write("horizon_parameters_loaded", { base_reserve_xlm: baseReserveXlm });
+    } catch {
+      process.stderr.write("Warning: unable to read Horizon reserve parameters; reserve estimates will be unavailable.\n");
+      logger.write("horizon_parameters_failed");
+    }
+    const records = [];
+    for (const candidate of secrets) {
+      process.stderr.write(`Verifying ${candidate.secret_key.slice(0, 4)}...${candidate.secret_key.slice(-4)}\n`);
+      records.push(await verifySecret(candidate, horizon, network, baseReserveXlm, logger));
+    }
+    const result = {
+      generated_at: new Date().toISOString(),
+      network,
+      horizon_url: config.horizonUrl,
+      records
+    };
+    const output = options.output ?? "results.json";
+    await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+    logger.write("verification_completed", { output, record_count: records.length, records });
+    console.log(`Wrote ${records.length} record(s) to ${output}`);
+    if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
   } catch (error) {
-    logger.write("secret_file_read_failed", { secret_file: secretFile, error: error instanceof Error ? error.message : String(error) });
-    await logger.flush();
+    logger.write("verification_failed", { error: error instanceof Error ? error.message : String(error) });
     throw error;
+  } finally {
+    await logger.flush();
   }
-  const secrets = readSecrets(text).map((secret) => ({ secret_key: secret, source_paths: [secretFile], discovery_methods: ["input_file"] }));
-  if (secrets.length === 0) throw new Error("No secret keys were found in the input file.");
-  logger.write("secrets_loaded", { count: secrets.length });
-  const horizon = new Horizon.Server(config.horizonUrl);
-  let baseReserveXlm = null;
-  try {
-    const root = await (await fetch(`${config.horizonUrl}/`)).json();
-    if (root.base_reserve_in_stroops) baseReserveXlm = Number(root.base_reserve_in_stroops) / 10_000_000;
-    logger.write("horizon_parameters_loaded", { base_reserve_xlm: baseReserveXlm });
-  } catch {
-    process.stderr.write("Warning: unable to read Horizon reserve parameters; reserve estimates will be unavailable.\n");
-    logger.write("horizon_parameters_failed");
-  }
-  const records = [];
-  for (const candidate of secrets) {
-    process.stderr.write(`Verifying ${candidate.secret_key.slice(0, 4)}...${candidate.secret_key.slice(-4)}\n`);
-    records.push(await verifySecret(candidate, horizon, network, baseReserveXlm, logger));
-  }
-  const result = {
-    generated_at: new Date().toISOString(),
-    network,
-    horizon_url: config.horizonUrl,
-    records
-  };
-  const output = options.output ?? "results.json";
-  await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-  logger.write("verification_completed", { output, record_count: records.length, records });
-  await logger.flush();
-  console.log(`Wrote ${records.length} record(s) to ${output}`);
-  if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
 }
 
 function accountSummary(account) {
@@ -467,28 +508,34 @@ function accountSummary(account) {
 
 async function reportCommand(input, options) {
   const logger = createLogger(options, "report");
-  logger.write("report_started", { input });
-  const result = JSON.parse(await fs.readFile(input, "utf8"));
-  const lines = [`Stellar Forensics Verification Report`, `Generated: ${result.generated_at}`, `Network: ${result.network}`, ""];
-  for (const record of result.records) {
-    lines.push(`Record ${record.record_id}`);
-    lines.push(`Status: ${record.verification_status}`);
-    lines.push(`Secret key: ${record.secret_key}`);
-    lines.push(`Source paths: ${(record.source_paths ?? []).join("; ") || "unknown"}`);
-    lines.push(`Discovery methods: ${(record.discovery_methods ?? []).join(", ") || "unknown"}`);
-    lines.push(`Derived public key: ${record.derived_public_key ?? "unavailable"}`);
-    lines.push(`Horizon account ID: ${record.horizon_account_id ?? "not found"}`);
-    lines.push(`Public key match: ${record.public_key_match ? "PASS" : "FAIL"}`);
-    lines.push(accountSummary(record.account));
-    if (record.error) lines.push(`Error: ${record.error}`);
-    lines.push("", "-".repeat(72), "");
+  try {
+    logger.write("report_started", { input });
+    const result = JSON.parse(await fs.readFile(input, "utf8"));
+    const lines = [`Stellar Forensics Verification Report`, `Generated: ${result.generated_at}`, `Network: ${result.network}`, ""];
+    for (const record of result.records ?? []) {
+      lines.push(`Record ${record.record_id}`);
+      lines.push(`Status: ${record.verification_status}`);
+      lines.push(`Secret key: ${record.secret_key}`);
+      lines.push(`Source paths: ${(record.source_paths ?? []).join("; ") || "unknown"}`);
+      lines.push(`Discovery methods: ${(record.discovery_methods ?? []).join(", ") || "unknown"}`);
+      lines.push(`Derived public key: ${record.derived_public_key ?? "unavailable"}`);
+      lines.push(`Horizon account ID: ${record.horizon_account_id ?? "not found"}`);
+      lines.push(`Public key match: ${record.public_key_match ? "PASS" : "FAIL"}`);
+      lines.push(accountSummary(record.account));
+      if (record.error) lines.push(`Error: ${record.error}`);
+      lines.push("", "-".repeat(72), "");
+    }
+    const output = options.output ?? "report.txt";
+    await fs.writeFile(output, `${lines.join("\n")}\n`, "utf8");
+    logger.write("report_completed", { output, record_count: (result.records ?? []).length, records: result.records });
+    console.log(`Wrote report to ${output}`);
+    if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
+  } catch (error) {
+    logger.write("report_failed", { error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  } finally {
+    await logger.flush();
   }
-  const output = options.output ?? "report.txt";
-  await fs.writeFile(output, `${lines.join("\n")}\n`, "utf8");
-  logger.write("report_completed", { output, record_count: result.records.length, records: result.records });
-  await logger.flush();
-  console.log(`Wrote report to ${output}`);
-  if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
 }
 
 async function main() {

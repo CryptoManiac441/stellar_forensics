@@ -1,0 +1,194 @@
+
+> stellar-forensics@0.1.0 test
+> node --test
+
+TAP version 13
+# Subtest: CLI help and unknown commands match documented entrypoints
+ok 1 - CLI help and unknown commands match documented entrypoints
+  ---
+  duration_ms: 1708.10374
+  ...
+# Subtest: scan rejects missing or combined scopes
+ok 2 - scan rejects missing or combined scopes
+  ---
+  duration_ms: 697.012439
+  ...
+# Subtest: scan --root writes pipeline artifacts for a bounded fixture
+ok 3 - scan --root writes pipeline artifacts for a bounded fixture
+  ---
+  duration_ms: 390.878837
+  ...
+# Subtest: scan --file inspects only the requested carrier
+ok 4 - scan --file inspects only the requested carrier
+  ---
+  duration_ms: 335.364616
+  ...
+# Subtest: scan --file rejects a missing path
+ok 5 - scan --file rejects a missing path
+  ---
+  duration_ms: 329.087763
+  ...
+# Subtest: scan --file fails when the named file is unreadable
+ok 6 - scan --file fails when the named file is unreadable
+  ---
+  duration_ms: 358.059122
+  ...
+# Subtest: scan --file extracts a gzip carrier
+ok 7 - scan --file extracts a gzip carrier
+  ---
+  duration_ms: 362.145904
+  ...
+# Subtest: scan --root rejects a missing directory
+ok 8 - scan --root rejects a missing directory
+  ---
+  duration_ms: 320.109462
+  ...
+# Subtest: scan --password-file unlocks a passworded ZIP without container search-all
+ok 9 - scan --password-file unlocks a passworded ZIP without container search-all
+  ---
+  duration_ms: 391.846607
+  ...
+# Subtest: scan --password-env unlocks a passworded ZIP
+ok 10 - scan --password-env unlocks a passworded ZIP
+  ---
+  duration_ms: 407.258626
+  ...
+# Subtest: invalid --password-search scope is rejected
+ok 11 - invalid --password-search scope is rejected
+  ---
+  duration_ms: 340.916975
+  ...
+# Subtest: missing --password-file is rejected
+ok 12 - missing --password-file is rejected
+  ---
+  duration_ms: 331.937341
+  ...
+# Subtest: verify records invalid secrets and missing files
+ok 13 - verify records invalid secrets and missing files
+  ---
+  duration_ms: 1102.564698
+  ...
+# Subtest: verify checks an unused valid key against Horizon testnet
+ok 14 - verify checks an unused valid key against Horizon testnet
+  ---
+  duration_ms: 505.591277
+  ...
+# Subtest: verify checks an unused valid key against Horizon public
+ok 15 - verify checks an unused valid key against Horizon public
+  ---
+  duration_ms: 517.94736
+  ...
+# Subtest: unsupported network is rejected
+ok 16 - unsupported network is rejected
+  ---
+  duration_ms: 350.027234
+  ...
+# Subtest: report formats verification JSON into a text report
+ok 17 - report formats verification JSON into a text report
+  ---
+  duration_ms: 348.429266
+  ...
+# Subtest: report rejects invalid JSON
+ok 18 - report rejects invalid JSON
+  ---
+  duration_ms: 350.857892
+  ...
+# Subtest: scan --file --verify records a discovered key against Horizon testnet
+ok 19 - scan --file --verify records a discovered key against Horizon testnet
+  ---
+  duration_ms: 487.197587
+  ...
+# Subtest: scan --verify with zero candidates writes an empty verification file
+ok 20 - scan --verify with zero candidates writes an empty verification file
+  ---
+  duration_ms: 359.43603
+  ...
+# Subtest: an invalid Stellar secret is rejected by the SDK
+ok 21 - an invalid Stellar secret is rejected by the SDK
+  ---
+  duration_ms: 1.370776
+  ...
+# Subtest: a generated keypair derives its matching public key
+ok 22 - a generated keypair derives its matching public key
+  ---
+  duration_ms: 22.912479
+  ...
+# Subtest: extractor registry covers the documented carrier classes
+ok 23 - extractor registry covers the documented carrier classes
+  ---
+  duration_ms: 0.667454
+  ...
+# Subtest: extractors find direct, base64, hex, and appended secrets with provenance
+ok 24 - extractors find direct, base64, hex, and appended secrets with provenance
+  ---
+  duration_ms: 12.879895
+  ...
+# Subtest: PNG, JPEG, and WAV metadata carriers are inspected
+ok 25 - PNG, JPEG, and WAV metadata carriers are inspected
+  ---
+  duration_ms: 12.760184
+  ...
+# Subtest: compressed payloads are decompressed and scanned
+ok 26 - compressed payloads are decompressed and scanned
+  ---
+  duration_ms: 24.397875
+  ...
+# Subtest: nested decoded payloads preserve their carrier provenance
+ok 27 - nested decoded payloads preserve their carrier provenance
+  ---
+  duration_ms: 10.909971
+  ...
+# Subtest: password candidates come from labeled files and environment variables
+ok 28 - password candidates come from labeled files and environment variables
+  ---
+  duration_ms: 0.547441
+  ...
+# Subtest: scan candidates become structured Horizon-ready records
+ok 29 - scan candidates become structured Horizon-ready records
+  ---
+  duration_ms: 0.793123
+  ...
+# Subtest: Horizon failures have distinct statuses
+ok 30 - Horizon failures have distinct statuses
+  ---
+  duration_ms: 0.319731
+  ...
+# Subtest: archive signatures are recognized from the scan header
+ok 31 - archive signatures are recognized from the scan header
+  ---
+  duration_ms: 0.208121
+  ...
+# Subtest: password search requires an explicit scope
+ok 32 - password search requires an explicit scope
+  ---
+  duration_ms: 0.263444
+  ...
+# Subtest: scan accepts a bounded root or exact file
+ok 33 - scan accepts a bounded root or exact file
+  ---
+  duration_ms: 0.058172
+  ...
+# Subtest: Node engine matches the upgraded Stellar SDK requirement
+ok 34 - Node engine matches the upgraded Stellar SDK requirement
+  ---
+  duration_ms: 1.21682
+  ...
+# Subtest: bundled 7za is repaired when the install leaves it non-executable
+ok 35 - bundled 7za is repaired when the install leaves it non-executable
+  ---
+  duration_ms: 0.413162
+  ...
+# Subtest: real ZIP containers feed extracted members into the extractor
+ok 36 - real ZIP containers feed extracted members into the extractor
+  ---
+  duration_ms: 11.90572
+  ...
+1..36
+# tests 36
+# suites 0
+# pass 36
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10354.701162

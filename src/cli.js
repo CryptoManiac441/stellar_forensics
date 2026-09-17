@@ -240,9 +240,13 @@ export function groupCandidates(matches) {
 }
 
 export function isArchiveSignature(buffer) {
-  const signature = buffer.toString("hex");
-  return signature.startsWith("504b0304") || signature.startsWith("377abcaf271c") ||
-    signature.startsWith("526172211a07") || signature.startsWith("1f8b");
+  const signature = buffer.subarray(0, 16).toString("hex");
+  const zip = ["504b0304", "504b0506", "504b0708"].some((prefix) => signature.startsWith(prefix));
+  const sevenZip = signature.startsWith("377abcaf271c");
+  const rar = signature.startsWith("526172211a07");
+  const gzip = signature.startsWith("1f8b");
+  const tar = buffer.length >= 265 && buffer.toString("ascii", 257, 262) === "ustar";
+  return zip || sevenZip || rar || gzip || tar;
 }
 
 async function scanDirectory(directory, matches, seen, logger, passwords, decodedSink) {
@@ -264,9 +268,9 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
     seen.add(filePath);
     try {
       const candidates = [];
-      const header = Buffer.alloc(6);
+      const header = Buffer.alloc(512);
       const handle = await fs.open(filePath, "r");
-      await handle.read(header, 0, 6, 0);
+      await handle.read(header, 0, header.length, 0);
       await handle.close();
       const archive = isArchiveSignature(header);
       if (archive) {

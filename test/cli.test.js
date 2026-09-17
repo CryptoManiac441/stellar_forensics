@@ -105,9 +105,14 @@ test("Horizon failures have distinct statuses", () => {
 
 test("archive signatures are recognized from the scan header", () => {
   assert.equal(isArchiveSignature(Buffer.from("504b0304", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("504b0506", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("504b0708", "hex")), true);
   assert.equal(isArchiveSignature(Buffer.from("377abcaf271c", "hex")), true);
   assert.equal(isArchiveSignature(Buffer.from("526172211a07", "hex")), true);
   assert.equal(isArchiveSignature(Buffer.from("1f8b", "hex")), true);
+  const tarHeader = Buffer.alloc(512);
+  tarHeader.write("ustar", 257, "ascii");
+  assert.equal(isArchiveSignature(tarHeader), true);
   assert.equal(isArchiveSignature(Buffer.from("00000000", "hex")), false);
 });
 

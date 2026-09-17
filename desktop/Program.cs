@@ -149,7 +149,7 @@ internal sealed class MainForm : Form
 
     private Control BuildLayout()
     {
-        var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 455, Padding = new Padding(18), BackColor = BackColor };
+        var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 380, Padding = new Padding(18), BackColor = BackColor };
         split.Panel1.Controls.Add(BuildControls());
         var activity = new GroupBox { Text = "Live operation feed", Dock = DockStyle.Fill, ForeColor = Color.FromArgb(128, 190, 231), Padding = new Padding(12) };
         activity.Controls.Add(feed);
@@ -238,7 +238,7 @@ internal sealed class MainForm : Form
         }
 
         var psi = new ProcessStartInfo("node") { WorkingDirectory = repositoryRoot, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-        psi.ArgumentList.Add(Path.Combine(repositoryRoot, "src", "cli.js"));
+        psi.ArgumentList.Add(Path.Combine(repositoryRoot, "src", "terminal-proxy.js"));
         psi.ArgumentList.Add(selected.ToLowerInvariant());
         if (selected == "Scan")
         {
@@ -261,16 +261,14 @@ internal sealed class MainForm : Form
         feed.Clear();
         run.Enabled = false;
         status.Text = "Running operation...";
-        Append("Starting local CLI process...\n");
         activeProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
         activeProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) BeginInvoke(() => Append(e.Data + "\n")); };
-        activeProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) BeginInvoke(() => Append("[stderr] " + e.Data + "\n")); };
+        activeProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) BeginInvoke(() => Append(e.Data + "\n")); };
         activeProcess.Start();
         activeProcess.BeginOutputReadLine();
         activeProcess.BeginErrorReadLine();
         await activeProcess.WaitForExitAsync();
         var code = activeProcess.ExitCode;
-        Append($"Process finished with exit code {code}.\n");
         status.Text = code == 0 ? "Completed successfully" : $"Failed (exit code {code})";
         activeProcess.Dispose();
         activeProcess = null;

@@ -4,6 +4,7 @@ import { gzipSync, brotliCompressSync } from "node:zlib";
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
+import { groupCandidates } from "../src/cli.js";
 
 test("Stellar SDK derives a stable public key from a secret", () => {
   const secret = "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
@@ -74,6 +75,18 @@ test("password candidates come from labeled files and environment variables", ()
     PATH: "ignored",
     STELLAR_PASSPHRASE: "beta"
   }), ["alpha", "beta"]);
+});
+
+test("scan candidates become structured Horizon-ready records", () => {
+  const secret = Keypair.random().secret();
+  const records = groupCandidates([
+    { secret_key: secret, source_path: "C:\\carrier.png", discovery_method: "png-chunk" },
+    { secret_key: secret, source_path: "C:\\archive.zip::keys.txt", discovery_method: "archive/raw-bytes" }
+  ]);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].secret_key, secret);
+  assert.deepEqual(records[0].source_paths, ["C:\\carrier.png", "C:\\archive.zip::keys.txt"]);
+  assert.deepEqual(records[0].discovery_methods, ["png-chunk", "archive/raw-bytes"]);
 });
 
 function chunk(type, data) {

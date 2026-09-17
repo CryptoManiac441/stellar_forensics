@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { extractFromBuffer, SUPPORTED_CARRIERS } from "./extractors.js";
@@ -214,11 +215,27 @@ function windowsRoots() {
   return roots;
 }
 
+export function groupCandidates(matches) {
+  const grouped = new Map();
+  for (const match of matches) {
+    const existing = grouped.get(match.secret_key) ?? {
+      secret_key: match.secret_key,
+      source_paths: [],
+      discovery_methods: []
+    };
+    if (!existing.source_paths.includes(match.source_path)) existing.source_paths.push(match.source_path);
+    if (!existing.discovery_methods.includes(match.discovery_method)) existing.discovery_methods.push(match.discovery_method);
+    grouped.set(match.secret_key, existing);
+  }
+  return [...grouped.values()];
+}
+
 async function scanDirectory(directory, matches, seen, logger, passwords, decodedSink) {
   let entries;
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    logger.write("directory_scan_failed", { directory, error: error instanceof Error ? error.message : String(error) });
     return;
   }
   for (const entry of entries) {
@@ -254,8 +271,11 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
         matches.push({ ...candidate, discovery_method: candidate.extractor });
         logger.write("candidate_discovered", { ...candidate, discovery_method: candidate.extractor });
       }
-    } catch {
-      // Files can disappear or deny access during a full-drive scan.
+    } catch (error) {
+      logger.write("file_scan_failed", {
+        file_path: filePath,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 }
@@ -263,7 +283,13 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
 async function scanCommand(options) {
   const logger = createLogger(options, "scan");
   const decodedSink = createDecodedSink(options);
-  const passwords = await passwordCandidates(options, logger);
+  let passwords = [];
+  try {
+    passwords = await passwordCandidates(options, logger);
+  } catch (error) {
+    logger.write("password_discovery_failed", { error: error instanceof Error ? error.message : String(error) });
+    process.stderr.write(`Warning: password discovery failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
   logger.write("scan_started", { all_drives: options["all-drives"] === true });
   if (options["all-drives"] !== "true" && options["all-drives"] !== true) {
     throw new Error("Scanning requires --all-drives.");
@@ -275,21 +301,15 @@ async function scanCommand(options) {
     logger.write("drive_scan_started", { root });
     await scanDirectory(root, matches, seen, logger, passwords, decodedSink);
   }
-  const grouped = new Map();
-  for (const match of matches) {
-    const existing = grouped.get(match.secret_key) ?? {
-      secret_key: match.secret_key,
-      source_paths: [],
-      discovery_methods: []
-    };
-    if (!existing.source_paths.includes(match.source_path)) existing.source_paths.push(match.source_path);
-    if (!existing.discovery_methods.includes(match.discovery_method)) existing.discovery_methods.push(match.discovery_method);
-    grouped.set(match.secret_key, existing);
-  }
-  const unique = [...grouped.values()];
+  const unique = groupCandidates(matches);
   const output = options.output ?? "secrets.txt";
-  await fs.writeFile(output, `${unique.map((match) => match.secret_key).join("\n")}\n`, "utf8");
-  await fs.writeFile(`${output}.sources.json`, `${JSON.stringify(unique, null, 2)}\n`, "utf8");
+  try {
+    await fs.writeFile(output, `${unique.map((match) => match.secret_key).join("\n")}\n`, "utf8");
+    await fs.writeFile(`${output}.sources.json`, `${JSON.stringify(unique, null, 2)}\n`, "utf8");
+  } catch (error) {
+    logger.write("scan_output_failed", { output, error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
   if (options.verify === true || options.verify === "true") {
     await verifyCandidates(unique, options, logger, "scan");
   }
@@ -324,7 +344,12 @@ async function verifyCandidates(candidates, options, logger, command) {
   }
   const result = { generated_at: new Date().toISOString(), network, horizon_url: config.horizonUrl, records };
   const output = options.results ?? (command === "scan" ? "scan-results.json" : "results.json");
-  await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  try {
+    await fs.writeFile(output, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  } catch (error) {
+    logger.write("verification_output_failed", { output, error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
   logger.write("verification_completed", { output, record_count: records.length, records });
   await logger.flush();
   console.log(`Wrote ${records.length} verification record(s) to ${output}`);
@@ -335,7 +360,14 @@ async function verifyCommand(secretFile, options) {
   logger.write("verification_started", { secret_file: secretFile });
   const network = options.network ?? "public";
   const config = networkConfig(network);
-  const text = await fs.readFile(secretFile, "utf8");
+  let text;
+  try {
+    text = await fs.readFile(secretFile, "utf8");
+  } catch (error) {
+    logger.write("secret_file_read_failed", { secret_file: secretFile, error: error instanceof Error ? error.message : String(error) });
+    await logger.flush();
+    throw error;
+  }
   const secrets = readSecrets(text).map((secret) => ({ secret_key: secret, source_paths: [secretFile], discovery_methods: ["input_file"] }));
   if (secrets.length === 0) throw new Error("No secret keys were found in the input file.");
   logger.write("secrets_loaded", { count: secrets.length });
@@ -425,7 +457,9 @@ async function main() {
   process.exitCode = 2;
 }
 
-main().catch((error) => {
-  console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+}

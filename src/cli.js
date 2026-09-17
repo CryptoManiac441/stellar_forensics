@@ -343,29 +343,30 @@ async function scanCommand(options) {
   const matches = [];
   const seen = new Set();
   const passwordState = { loaded: false };
-  for (const root of scanRoot ? [scanRoot] : windowsRoots()) {
-    process.stderr.write(`Scanning ${root}\n`);
-    logger.write("drive_scan_started", { root });
-    await scanDirectory(root, matches, seen, logger, passwords, passwordState, decodedSink, options);
-  }
-  const unique = groupCandidates(matches);
-  const output = options.output ?? "secrets.txt";
   try {
+    for (const root of scanRoot ? [scanRoot] : windowsRoots()) {
+      process.stderr.write(`Scanning ${root}\n`);
+      logger.write("drive_scan_started", { root });
+      await scanDirectory(root, matches, seen, logger, passwords, passwordState, decodedSink, options);
+    }
+    const unique = groupCandidates(matches);
+    const output = options.output ?? "secrets.txt";
     await fs.writeFile(output, `${unique.map((match) => match.secret_key).join("\n")}\n`, "utf8");
     await fs.writeFile(`${output}.sources.json`, `${JSON.stringify(unique, null, 2)}\n`, "utf8");
+    if (options.verify === true || options.verify === "true") {
+      await verifyCandidates(unique, options, logger, "scan");
+    }
+    logger.write("scan_completed", { output, candidate_count: unique.length, matches: unique });
+    console.log(`Found ${unique.length} candidate(s); wrote ${output}`);
+    console.log(`Wrote decoded data log to ${decodedSink.output}`);
+    if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
   } catch (error) {
-    logger.write("scan_output_failed", { output, error: error instanceof Error ? error.message : String(error) });
+    logger.write("scan_failed", { error: error instanceof Error ? error.message : String(error) });
     throw error;
+  } finally {
+    await decodedSink.flush();
+    await logger.flush();
   }
-  if (options.verify === true || options.verify === "true") {
-    await verifyCandidates(unique, options, logger, "scan");
-  }
-  logger.write("scan_completed", { output, candidate_count: unique.length, matches: unique });
-  await decodedSink.flush();
-  await logger.flush();
-  console.log(`Found ${unique.length} candidate(s); wrote ${output}`);
-  console.log(`Wrote decoded data log to ${decodedSink.output}`);
-  if (logger.enabled) console.log(`Wrote verbose log to ${logger.logPath}`);
 }
 
 async function verifyCandidates(candidates, options, logger, command) {

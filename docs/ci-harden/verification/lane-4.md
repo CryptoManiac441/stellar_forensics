@@ -22,3 +22,5 @@ Live Sonar server analysis cannot be executed in this workspace (no `SONAR_TOKEN
 - `vars.SONAR_HOST_URL`
 - `secrets.SONAR_TOKEN`
 - optional `vars.SONAR_ORGANIZATION`, `vars.SONAR_PROJECT_KEY`
+
+GitHub-hosted jobs on PR #5 currently do not start because the GitHub account is locked for billing. That failure is independent of this gateway. After billing is restored, missing Sonar vars/secrets still fail closed.

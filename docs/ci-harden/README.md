@@ -31,3 +31,18 @@ Empty host or token fails the job. That is intentional.
 ## Allowlist
 
 Canonical file: `.github/audit-allowlist.json`. Do not add a nested copy under `scripts/`.
+
+## Second pass (2026-09-17)
+
+Local re-run after the verification docs landed:
+
+- `npm test` — 37/37 pass
+- `CI=true HEADED=0 npm run test:ci` — 37/37 pass; headless policy ok
+- `CI=true HEADED=1` and `CI=true npm run test:headed` — exit 1 (headed forbidden in CI)
+- `npm run audit:production` — 0 production advisories
+- PyYAML + actionlint v1.7.12 — workflow parse/lint ok; 13 `uses:` all 40-char SHA + version comment
+- `require-sonar-gateway.mjs` with empty env — exit 1 (fail-closed)
+
+GitHub Actions on this PR did **not** execute jobs. Every job annotation is `The job was not started because your account is locked due to a billing issue.` That is an org billing lock, not a workflow defect. After billing is restored, `sonar-quality-gate` will still fail until `vars.SONAR_HOST_URL` and `secrets.SONAR_TOKEN` are set.
+
+There is still no Playwright suite on `main` (Node CLI only). CI sets `PLAYWRIGHT_HEADLESS=1` and rejects `PLAYWRIGHT_HEADED` / xvfb so a future Playwright job cannot silently go headed.

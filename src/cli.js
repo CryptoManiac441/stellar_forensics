@@ -14,7 +14,7 @@ const DEFAULT_HORIZON = "https://horizon.stellar.org";
 
 function usage() {
   console.log(`Usage:
-      stellar-forensics scan --all-drives [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--verbose] [--log scan.log]
+      stellar-forensics scan (--all-drives | --root DIRECTORY) [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--verbose] [--log scan.log]
       stellar-forensics verify <secret-file> [--network public|testnet] [--output report.json] [--verbose] [--log verify.log]
       stellar-forensics report <results.json> [--output report.txt] [--verbose] [--log report.log]
 
@@ -334,14 +334,16 @@ async function scanCommand(options) {
     logger.write("password_discovery_failed", { error: error instanceof Error ? error.message : String(error) });
     process.stderr.write(`Warning: password discovery failed: ${error instanceof Error ? error.message : String(error)}\n`);
   }
-  logger.write("scan_started", { all_drives: options["all-drives"] === true });
-  if (options["all-drives"] !== "true" && options["all-drives"] !== true) {
-    throw new Error("Scanning requires --all-drives.");
+  const scanRoot = options.root ? path.resolve(options.root) : null;
+  const allDrives = options["all-drives"] === "true" || options["all-drives"] === true;
+  logger.write("scan_started", { all_drives: allDrives, root: scanRoot });
+  if (!allDrives && !scanRoot) {
+    throw new Error("Scanning requires --all-drives or --root DIRECTORY.");
   }
   const matches = [];
   const seen = new Set();
   const passwordState = { loaded: false };
-  for (const root of windowsRoots()) {
+  for (const root of scanRoot ? [scanRoot] : windowsRoots()) {
     process.stderr.write(`Scanning ${root}\n`);
     logger.write("drive_scan_started", { root });
     await scanDirectory(root, matches, seen, logger, passwords, passwordState, decodedSink, options);

@@ -121,6 +121,12 @@ test("password search requires an explicit scope", () => {
   assert.throws(() => parseArgs(["scan", "--password-search"]));
 });
 
+test("scan accepts a bounded root", () => {
+  const parsed = parseArgs(["scan", "--root", "fixture"]);
+  assert.equal(parsed.options.root, "fixture");
+  assert.equal(parsed.positional[0], "scan");
+});
+
 test("Node engine matches the upgraded Stellar SDK requirement", async () => {
   const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(packageJson.engines.node, ">=22.12.0");
@@ -137,6 +143,44 @@ test("real ZIP containers feed extracted members into the extractor", async () =
     await execFileAsync(path7za, ["a", "-tzip", archive, member], { windowsHide: true });
     const results = await extractFromBuffer(await fs.readFile(archive), archive);
     assert.ok(results.some((result) => result.secret_key === secret && result.source_path.includes("::keys.txt")));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI scans a bounded fixture and writes complete pipeline artifacts", async () => {
+  const { path7za } = await import("7zip-bin");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-cli-"));
+  const output = path.join(root, "secrets.txt");
+  const sources = `${output}.sources.json`;
+  const decoded = path.join(root, "decoded.jsonl");
+  const log = path.join(root, "scan.log");
+  const member = path.join(root, "member.txt");
+  const archive = path.join(root, "keys.zip");
+  const secret = Keypair.random().secret();
+  try {
+    await fs.writeFile(path.join(root, "plain.txt"), `found ${secret}\n`);
+    await fs.writeFile(member, `archived ${secret}\n`);
+    await execFileAsync(path7za, ["a", "-tzip", archive, member], { windowsHide: true });
+    const { stdout } = await execFileAsync(process.execPath, [
+      path.resolve("src/cli.js"),
+      "scan",
+      "--root", root,
+      "--output", output,
+      "--decoded-log", decoded,
+      "--verbose",
+      "--log", log
+    ], { windowsHide: true });
+    assert.match(stdout, /Found 1 candidate\(s\)/);
+    assert.deepEqual((await fs.readFile(output, "utf8")).trim().split("\n"), [secret]);
+    const sourceRecords = JSON.parse(await fs.readFile(sources, "utf8"));
+    assert.equal(sourceRecords.length, 1);
+    assert.ok(sourceRecords[0].source_paths.some((sourcePath) => sourcePath.includes("plain.txt")));
+    assert.ok(sourceRecords[0].source_paths.some((sourcePath) => sourcePath.includes("keys.zip::")));
+    const logText = await fs.readFile(log, "utf8");
+    assert.match(logText, /"event":"scan_started"/);
+    assert.match(logText, /"event":"candidate_discovered"/);
+    assert.match(await fs.readFile(decoded, "utf8"), /"source_path"/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

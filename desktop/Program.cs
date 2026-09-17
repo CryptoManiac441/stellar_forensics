@@ -38,6 +38,9 @@ internal sealed class MainForm : Form
     private readonly StatusStrip statusBar = new();
     private Process? activeProcess;
     private readonly string repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+    private readonly string desktopOutputFolder = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+    private string defaultOutputPath = string.Empty;
+    private string defaultLogPath = string.Empty;
 
     public MainForm()
     {
@@ -53,6 +56,12 @@ internal sealed class MainForm : Form
         command.SelectedIndex = 0;
         network.Items.AddRange(["public", "testnet"]);
         network.SelectedIndex = 0;
+        defaultOutputPath = Path.Combine(desktopOutputFolder, "secrets.txt");
+        defaultLogPath = Path.Combine(desktopOutputFolder, "scan.log");
+        output.Text = defaultOutputPath;
+        decodedLog.Text = Path.Combine(desktopOutputFolder, "decoded-data.jsonl");
+        log.Text = defaultLogPath;
+        results.Text = Path.Combine(desktopOutputFolder, "scan-results.json");
         run.Click += async (_, _) => await RunOperationAsync();
         command.SelectedIndexChanged += (_, _) => UpdateCommandView();
         allDrives.CheckedChanged += (_, _) => root.Enabled = !allDrives.Checked;
@@ -219,12 +228,14 @@ internal sealed class MainForm : Form
         input.Enabled = !scan;
         results.Visible = scan;
         decodedLog.Visible = scan;
+        UpdateCommandDefaults(command.SelectedItem?.ToString() ?? "Scan");
     }
 
     private async Task RunOperationAsync()
     {
         if (activeProcess is not null) return;
         var selected = command.SelectedItem?.ToString() ?? "Scan";
+        ApplyDefaultOutputPaths(selected);
         var selectedTargets = (allDrives.Checked ? 1 : 0) + (!string.IsNullOrWhiteSpace(root.Text) ? 1 : 0) + (!string.IsNullOrWhiteSpace(scanFile.Text) ? 1 : 0);
         if (selected == "Scan" && selectedTargets != 1)
         {
@@ -273,6 +284,74 @@ internal sealed class MainForm : Form
         activeProcess.Dispose();
         activeProcess = null;
         run.Enabled = true;
+        if (code == 0) ShowCompletionDialog(selected);
+    }
+
+    private void ApplyDefaultOutputPaths(string selected)
+    {
+        UpdateCommandDefaults(selected);
+        SetDefault(decodedLog, "decoded-data.jsonl");
+        SetDefault(log, selected == "Scan" ? "scan.log" : selected == "Verify" ? "verify.log" : "report.log");
+        SetDefault(results, "scan-results.json");
+        output.Text = ToDesktopPath(output.Text);
+        decodedLog.Text = ToDesktopPath(decodedLog.Text);
+        log.Text = ToDesktopPath(log.Text);
+        results.Text = ToDesktopPath(results.Text);
+    }
+
+    private void UpdateCommandDefaults(string selected)
+    {
+        var nextOutput = Path.Combine(desktopOutputFolder, selected == "Scan" ? "secrets.txt" : selected == "Verify" ? "results.json" : "report.txt");
+        var nextLog = Path.Combine(desktopOutputFolder, selected == "Scan" ? "scan.log" : selected == "Verify" ? "verify.log" : "report.log");
+        if (string.IsNullOrWhiteSpace(output.Text) || output.Text == defaultOutputPath) output.Text = nextOutput;
+        if (string.IsNullOrWhiteSpace(log.Text) || log.Text == defaultLogPath) log.Text = nextLog;
+        defaultOutputPath = nextOutput;
+        defaultLogPath = nextLog;
+    }
+
+    private void SetDefault(TextBox field, string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(field.Text)) field.Text = Path.Combine(desktopOutputFolder, fileName);
+    }
+
+    private string ToDesktopPath(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? desktopOutputFolder : Path.IsPathRooted(value) ? value : Path.Combine(desktopOutputFolder, value);
+    }
+
+    private void ShowCompletionDialog(string operation)
+    {
+        var folder = Path.GetDirectoryName(output.Text);
+        if (string.IsNullOrWhiteSpace(folder)) folder = desktopOutputFolder;
+        using var dialog = new Form
+        {
+            Text = "Stellar Forensics complete",
+            Width = 500,
+            Height = 210,
+            StartPosition = FormStartPosition.CenterParent,
+            BackColor = BackColor,
+            ForeColor = ForeColor,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false
+        };
+        var message = new Label
+        {
+            Text = $"{operation} finished successfully.\n\nResults and logs were saved to:\n{folder}",
+            AutoSize = true,
+            MaximumSize = new Size(460, 100),
+            Location = new Point(18, 16)
+        };
+        var open = new Button { Text = "Open results folder", AutoSize = true, Location = new Point(18, 135) };
+        open.Click += (_, _) =>
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
+            dialog.Close();
+        };
+        var close = new Button { Text = "Close", AutoSize = true, Location = new Point(165, 135) };
+        close.Click += (_, _) => dialog.Close();
+        dialog.Controls.AddRange([message, open, close]);
+        dialog.ShowDialog(this);
     }
 
     private void OpenOutputFolder()

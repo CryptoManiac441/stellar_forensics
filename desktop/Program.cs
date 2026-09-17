@@ -34,6 +34,7 @@ internal sealed class MainForm : Form
     private readonly Button run = new() { Text = "Run operation", AutoSize = true };
     private readonly MenuStrip menu = new();
     private readonly ToolStripStatusLabel status = new("Ready");
+    private readonly StatusStrip statusBar = new();
     private Process? activeProcess;
     private readonly string repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
@@ -73,34 +74,76 @@ internal sealed class MainForm : Form
         menu.BackColor = Color.FromArgb(13, 31, 55);
         menu.ForeColor = Color.FromArgb(226, 237, 248);
         menu.Renderer = new ToolStripProfessionalRenderer(new HorizonColorTable());
+        menu.Items.AddRange([BuildFileMenu(), BuildViewMenu(), BuildEditMenu(), BuildHelpMenu()]);
+        return menu;
+    }
+
+    private ToolStripMenuItem BuildFileMenu()
+    {
         var file = new ToolStripMenuItem("&File");
-        file.DropDownItems.Add("Run operation", null, async (_, _) => await RunOperationAsync());
+        file.DropDownItems.Add(MenuItem("&New session", (_, _) => ResetForm(), Keys.Control | Keys.N));
+        file.DropDownItems.Add(MenuItem("&Open input file...", (_, _) => OpenInputFile(), Keys.Control | Keys.O));
+        file.DropDownItems.Add(MenuItem("&Save activity feed...", (_, _) => SaveActivityFeed(), Keys.Control | Keys.S));
         file.DropDownItems.Add("Open output folder", null, (_, _) => OpenOutputFolder());
         file.DropDownItems.Add(new ToolStripSeparator());
-        file.DropDownItems.Add("E&xit", null, (_, _) => Close());
+        file.DropDownItems.Add(MenuItem("E&xit", (_, _) => Close(), Keys.Alt | Keys.F4));
+        return file;
+    }
+
+    private ToolStripMenuItem BuildViewMenu()
+    {
         var view = new ToolStripMenuItem("&View");
-        view.DropDownItems.Add("Clear activity feed", null, (_, _) => feed.Clear());
+        view.DropDownItems.Add(MenuItem("Clear activity feed", (_, _) => feed.Clear(), Keys.Control | Keys.L));
         view.DropDownItems.Add("Reset form", null, (_, _) => ResetForm());
+        var statusItem = new ToolStripMenuItem("Status bar") { Checked = true, CheckOnClick = true };
+        statusItem.CheckedChanged += (_, _) => statusBar.Visible = statusItem.Checked;
+        view.DropDownItems.Add(statusItem);
+        return view;
+    }
+
+    private ToolStripMenuItem BuildEditMenu()
+    {
         var edit = new ToolStripMenuItem("&Edit");
-        edit.DropDownItems.Add("Copy selected text", null, (_, _) => feed.Copy());
-        edit.DropDownItems.Add("Select all activity", null, (_, _) => feed.SelectAll());
+        edit.DropDownItems.Add(MenuItem("&Undo", (_, _) => EditFocused("undo"), Keys.Control | Keys.Z));
+        edit.DropDownItems.Add(MenuItem("&Redo", (_, _) => EditFocused("redo"), Keys.Control | Keys.Y));
+        edit.DropDownItems.Add(new ToolStripSeparator());
+        edit.DropDownItems.Add(MenuItem("Cu&t", (_, _) => EditFocused("cut"), Keys.Control | Keys.X));
+        edit.DropDownItems.Add(MenuItem("&Copy", (_, _) => EditFocused("copy"), Keys.Control | Keys.C));
+        edit.DropDownItems.Add(MenuItem("&Paste", (_, _) => EditFocused("paste"), Keys.Control | Keys.V));
+        edit.DropDownItems.Add(MenuItem("Select &all", (_, _) => EditFocused("select"), Keys.Control | Keys.A));
+        return edit;
+    }
+
+    private static ToolStripMenuItem MenuItem(string text, EventHandler action, Keys shortcut)
+    {
+        var item = new ToolStripMenuItem(text) { ShortcutKeys = shortcut };
+        item.Click += action;
+        return item;
+    }
+
+    private ToolStripMenuItem BuildHelpMenu()
+    {
         var help = new ToolStripMenuItem("&Help");
         help.DropDownItems.Add("Privacy and safety", null, (_, _) => MessageBox.Show(this,
             "Secret keys are processed locally. Only derived public keys are sent to Horizon during verification. Output files remain on your computer.",
             "Privacy and safety", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        help.DropDownItems.Add("Keyboard shortcuts", null, (_, _) => MessageBox.Show(this,
+            "Ctrl+N  New session\nCtrl+O  Open input file\nCtrl+S  Save activity feed\nCtrl+L  Clear activity feed\nCtrl+Z/Y  Undo/redo\nCtrl+X/C/V  Cut/copy/paste\nCtrl+A  Select all",
+            "Keyboard shortcuts", MessageBoxButtons.OK, MessageBoxIcon.Information));
         help.DropDownItems.Add("About Stellar Forensics", null, (_, _) => MessageBox.Show(this,
             "Stellar Forensics\nLocal discovery and Horizon verification console\n\nBuilt for controlled, auditable investigations.",
             "About", MessageBoxButtons.OK, MessageBoxIcon.Information));
-        menu.Items.AddRange([file, view, edit, help]);
-        return menu;
+        return help;
     }
 
     private Control BuildStatusBar()
     {
-        var bar = new StatusStrip { Dock = DockStyle.Bottom, BackColor = Color.FromArgb(13, 31, 55), ForeColor = Color.FromArgb(157, 184, 211) };
-        bar.Items.Add(status);
-        bar.Items.Add(new ToolStripStatusLabel("LOCAL ONLY") { Spring = true, TextAlign = ContentAlignment.MiddleRight, ForeColor = Color.FromArgb(85, 214, 190) });
-        return bar;
+        statusBar.Dock = DockStyle.Bottom;
+        statusBar.BackColor = Color.FromArgb(13, 31, 55);
+        statusBar.ForeColor = Color.FromArgb(157, 184, 211);
+        statusBar.Items.Add(status);
+        statusBar.Items.Add(new ToolStripStatusLabel("LOCAL ONLY") { Spring = true, TextAlign = ContentAlignment.MiddleRight, ForeColor = Color.FromArgb(85, 214, 190) });
+        return statusBar;
     }
 
     private Control BuildLayout()
@@ -234,6 +277,50 @@ internal sealed class MainForm : Form
         var target = output.Text;
         var folder = string.IsNullOrWhiteSpace(target) ? repositoryRoot : Path.GetDirectoryName(Path.GetFullPath(target)) ?? repositoryRoot;
         Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
+    }
+
+    private void OpenInputFile()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Select a secret-key or verification results file",
+            Filter = "Supported files|*.txt;*.json;*.jsonl|All files|*.*"
+        };
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            input.Text = dialog.FileName;
+            command.SelectedItem = dialog.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? "Report" : "Verify";
+        }
+    }
+
+    private void SaveActivityFeed()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Save activity feed",
+            Filter = "Text files|*.txt|All files|*.*",
+            FileName = "stellar-forensics-activity.txt"
+        };
+        if (dialog.ShowDialog(this) == DialogResult.OK) File.WriteAllText(dialog.FileName, feed.Text);
+    }
+
+    private void EditFocused(string action)
+    {
+        if (ActiveControl is TextBoxBase textBox)
+        {
+            switch (action)
+            {
+                case "undo": if (textBox.CanUndo) textBox.Undo(); break;
+                case "redo" when textBox is RichTextBox richTextBox: richTextBox.Redo(); break;
+                case "cut": textBox.Cut(); break;
+                case "copy": textBox.Copy(); break;
+                case "paste": textBox.Paste(); break;
+                case "select": textBox.SelectAll(); break;
+            }
+            return;
+        }
+        if (action == "copy") feed.Copy();
+        if (action == "select") feed.SelectAll();
     }
 
     private void ResetForm()

@@ -117,7 +117,7 @@ test("archive signatures are recognized from the scan header", () => {
 });
 
 test("password search requires an explicit scope", () => {
-  assert.deepEqual(parseArgs(["scan", "--password-search", "all-drives"]).options["password-search"], "all-drives");
+  assert.deepEqual(parseArgs(["scan", "--password-search", "containers"]).options["password-search"], "containers");
   assert.throws(() => parseArgs(["scan", "--password-search"]));
 });
 

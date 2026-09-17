@@ -22,7 +22,9 @@ Exactly one of:
 
 Missing or combined scopes → error.
 
-`--root` must be an existing directory. `--file` must be an existing file.
+`--root` must be an existing directory. `--file` must be an existing **readable** file; permission errors on that named file exit 1 (directory walks still skip unreadable siblings).
+
+`--password-file` if present must be an existing file. A missing path is an error, not a silent empty password list.
 
 Writes:
 

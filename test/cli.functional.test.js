@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { gzipSync } from "node:zlib";
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
@@ -37,6 +39,12 @@ test("CLI help and unknown commands match documented entrypoints", async () => {
   assert.match(help.stdout, /--file FILE/);
   const unknown = await runCli(["nope"]);
   assert.equal(unknown.code, 2);
+  const verifyMissing = await runCli(["verify"]);
+  assert.equal(verifyMissing.code, 2);
+  const reportMissing = await runCli(["report"]);
+  assert.equal(reportMissing.code, 2);
+  const scanHelp = await runCli(["scan", "--help"]);
+  assert.equal(scanHelp.code, 0);
 });
 
 test("scan rejects missing or combined scopes", async () => {
@@ -111,6 +119,53 @@ test("scan --file rejects a missing path", async () => {
   assert.match(result.stderr, /Scan file does not exist/);
 });
 
+test("scan --file fails when the named file is unreadable", async () => {
+  if (process.platform === "win32") return;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-locked-"));
+  const locked = path.join(root, "locked.txt");
+  try {
+    await fs.writeFile(locked, "nope\n");
+    await fs.chmod(locked, 0o000);
+    try {
+      await fs.access(locked, fsConstants.R_OK);
+      return;
+    } catch {
+      // Expected: this user cannot read the file.
+    }
+    const result = await runCli([
+      "scan",
+      "--file", locked,
+      "--output", path.join(root, "secrets.txt"),
+      "--decoded-log", path.join(root, "decoded.jsonl")
+    ]);
+    assert.equal(result.code, 1, result.stderr);
+    assert.match(result.stderr, /EACCES|permission denied/);
+  } finally {
+    await fs.chmod(locked, 0o644).catch(() => {});
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("scan --file extracts a gzip carrier", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-gz-"));
+  const secret = Keypair.random().secret();
+  const carrier = path.join(root, "carrier.gz");
+  const output = path.join(root, "secrets.txt");
+  try {
+    await fs.writeFile(carrier, gzipSync(Buffer.from(secret)));
+    const result = await runCli([
+      "scan",
+      "--file", carrier,
+      "--output", output,
+      "--decoded-log", path.join(root, "decoded.jsonl")
+    ]);
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual((await fs.readFile(output, "utf8")).trim().split("\n"), [secret]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("scan --root rejects a missing directory", async () => {
   const result = await runCli(["scan", "--root", path.join(os.tmpdir(), "stellar-missing-root-does-not-exist")]);
   assert.equal(result.code, 1);
@@ -175,6 +230,18 @@ test("invalid --password-search scope is rejected", async () => {
   assert.match(result.stderr, /Invalid --password-search scope/);
 });
 
+test("missing --password-file is rejected", async () => {
+  const result = await runCli([
+    "scan",
+    "--root", os.tmpdir(),
+    "--password-file", path.join(os.tmpdir(), "stellar-missing-password-file.txt"),
+    "--output", path.join(os.tmpdir(), "stellar-pw-out.txt"),
+    "--decoded-log", path.join(os.tmpdir(), "stellar-pw-decoded.jsonl")
+  ]);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /Password file does not exist/);
+});
+
 test("verify records invalid secrets and missing files", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-verify-"));
   try {
@@ -212,6 +279,25 @@ test("verify checks an unused valid key against Horizon testnet", { timeout: 60_
     assert.equal(payload.records[0].derived_public_key, keypair.publicKey());
     assert.equal(payload.records[0].verification_status, "valid_key_account_not_found");
     assert.equal(payload.records[0].account_found, false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("verify checks an unused valid key against Horizon public", { timeout: 60_000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-horizon-pub-"));
+  const secretFile = path.join(root, "secrets.txt");
+  const output = path.join(root, "results.json");
+  const keypair = Keypair.random();
+  try {
+    await fs.writeFile(secretFile, `# ignored\n\n${keypair.secret()}\n`);
+    const result = await runCli(["verify", secretFile, "--network", "public", "--output", output], { timeout: 45_000 });
+    assert.equal(result.code, 0, result.stderr);
+    const payload = JSON.parse(await fs.readFile(output, "utf8"));
+    assert.equal(payload.network, "public");
+    assert.equal(payload.records.length, 1);
+    assert.equal(payload.records[0].derived_public_key, keypair.publicKey());
+    assert.equal(payload.records[0].verification_status, "valid_key_account_not_found");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

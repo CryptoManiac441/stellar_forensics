@@ -14,6 +14,7 @@ npm start -- --help
 node src/cli.js --help
 
 # Bounded scan (preferred). Do not use --all-drives unless you intend a full Windows drive walk.
+# --file must be readable. --password-file if set must exist.
 node src/cli.js scan --root DIRECTORY [--verify] [--network public|testnet] [--password-search containers] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--results scan-results.json] [--decoded-log decoded-data.jsonl] [--verbose] [--log scan.log]
 node src/cli.js scan --file FILE [same flags as above]
 

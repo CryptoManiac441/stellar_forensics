@@ -21,14 +21,16 @@ Expected: exit 0 each.
 npm test
 ```
 
-Fresh result captured in `evidence/npm-test.txt`:
+Fresh result captured in `evidence/npm-test-loop-03.txt` (second pass):
 
 ```
-# tests 32
-# pass 32
+# tests 36
+# pass 36
 # fail 0
-# duration_ms 8073.598756
+# duration_ms 10354.701162
 ```
+
+Loop 02 baseline remains in `evidence/npm-test.txt` (32/32).
 
 ## Headed smoke
 

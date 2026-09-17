@@ -283,6 +283,7 @@ async function scanDirectory(directory, matches, seen, logger, passwords, passwo
 async function scanOneFile(filePath, matches, seen, logger, passwords, passwordState, decodedSink, options) {
   if (seen.has(filePath)) return;
   seen.add(filePath);
+  const required = Boolean(options.file) && path.resolve(options.file) === filePath;
   try {
     const candidates = [];
     const header = Buffer.alloc(512);
@@ -324,6 +325,7 @@ async function scanOneFile(filePath, matches, seen, logger, passwords, passwordS
       file_path: filePath,
       error: error instanceof Error ? error.message : String(error)
     });
+    if (required) throw error;
   }
 }
 
@@ -333,6 +335,13 @@ async function scanCommand(options) {
   try {
     if (options["password-search"] !== undefined && options["password-search"] !== "containers") {
       throw new Error('Invalid --password-search scope. Use "--password-search containers".');
+    }
+    if (options["password-file"]) {
+      const passwordFile = path.resolve(options["password-file"]);
+      const passwordStat = await fs.stat(passwordFile).catch(() => null);
+      if (!passwordStat?.isFile()) {
+        throw new Error(`Password file does not exist or is not a file: ${passwordFile}`);
+      }
     }
     let passwords = [];
     try {

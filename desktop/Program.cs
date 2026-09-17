@@ -32,6 +32,8 @@ internal sealed class MainForm : Form
     private readonly TextBox results = new();
     private readonly RichTextBox feed = new() { ReadOnly = true, BackColor = Color.FromArgb(9, 17, 31), ForeColor = Color.FromArgb(220, 232, 245), Dock = DockStyle.Fill };
     private readonly Button run = new() { Text = "Run operation", AutoSize = true };
+    private readonly MenuStrip menu = new();
+    private readonly ToolStripStatusLabel status = new("Ready");
     private Process? activeProcess;
     private readonly string repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
@@ -44,6 +46,7 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(9, 17, 31);
         ForeColor = Color.FromArgb(234, 241, 251);
+        Font = new Font("Segoe UI", 9F);
         command.Items.AddRange(["Scan", "Verify", "Report"]);
         command.SelectedIndex = 0;
         network.Items.AddRange(["public", "testnet"]);
@@ -51,15 +54,60 @@ internal sealed class MainForm : Form
         run.Click += async (_, _) => await RunOperationAsync();
         command.SelectedIndexChanged += (_, _) => UpdateCommandView();
         allDrives.CheckedChanged += (_, _) => root.Enabled = !allDrives.Checked;
-        Controls.Add(BuildLayout());
+        Controls.Add(BuildWindow());
         UpdateCommandView();
+    }
+
+    private Control BuildWindow()
+    {
+        var window = new Panel { Dock = DockStyle.Fill, BackColor = BackColor };
+        window.Controls.Add(BuildLayout());
+        window.Controls.Add(BuildStatusBar());
+        window.Controls.Add(BuildMenu());
+        return window;
+    }
+
+    private MenuStrip BuildMenu()
+    {
+        menu.Dock = DockStyle.Top;
+        menu.BackColor = Color.FromArgb(13, 31, 55);
+        menu.ForeColor = Color.FromArgb(226, 237, 248);
+        menu.Renderer = new ToolStripProfessionalRenderer(new HorizonColorTable());
+        var file = new ToolStripMenuItem("&File");
+        file.DropDownItems.Add("Run operation", null, async (_, _) => await RunOperationAsync());
+        file.DropDownItems.Add("Open output folder", null, (_, _) => OpenOutputFolder());
+        file.DropDownItems.Add(new ToolStripSeparator());
+        file.DropDownItems.Add("E&xit", null, (_, _) => Close());
+        var view = new ToolStripMenuItem("&View");
+        view.DropDownItems.Add("Clear activity feed", null, (_, _) => feed.Clear());
+        view.DropDownItems.Add("Reset form", null, (_, _) => ResetForm());
+        var edit = new ToolStripMenuItem("&Edit");
+        edit.DropDownItems.Add("Copy selected text", null, (_, _) => feed.Copy());
+        edit.DropDownItems.Add("Select all activity", null, (_, _) => feed.SelectAll());
+        var help = new ToolStripMenuItem("&Help");
+        help.DropDownItems.Add("Privacy and safety", null, (_, _) => MessageBox.Show(this,
+            "Secret keys are processed locally. Only derived public keys are sent to Horizon during verification. Output files remain on your computer.",
+            "Privacy and safety", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        help.DropDownItems.Add("About Stellar Forensics", null, (_, _) => MessageBox.Show(this,
+            "Stellar Forensics\nLocal discovery and Horizon verification console\n\nBuilt for controlled, auditable investigations.",
+            "About", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        menu.Items.AddRange([file, view, edit, help]);
+        return menu;
+    }
+
+    private Control BuildStatusBar()
+    {
+        var bar = new StatusStrip { Dock = DockStyle.Bottom, BackColor = Color.FromArgb(13, 31, 55), ForeColor = Color.FromArgb(157, 184, 211) };
+        bar.Items.Add(status);
+        bar.Items.Add(new ToolStripStatusLabel("LOCAL ONLY") { Spring = true, TextAlign = ContentAlignment.MiddleRight, ForeColor = Color.FromArgb(85, 214, 190) });
+        return bar;
     }
 
     private Control BuildLayout()
     {
         var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 455, Padding = new Padding(18), BackColor = BackColor };
         split.Panel1.Controls.Add(BuildControls());
-        var activity = new GroupBox { Text = "Live operation feed", Dock = DockStyle.Fill, ForeColor = ForeColor, Padding = new Padding(12) };
+        var activity = new GroupBox { Text = "Live operation feed", Dock = DockStyle.Fill, ForeColor = Color.FromArgb(128, 190, 231), Padding = new Padding(12) };
         activity.Controls.Add(feed);
         split.Panel2.Controls.Add(activity);
         return split;
@@ -164,6 +212,7 @@ internal sealed class MainForm : Form
 
         feed.Clear();
         run.Enabled = false;
+        status.Text = "Running operation...";
         Append("Starting local CLI process...\n");
         activeProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
         activeProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) BeginInvoke(() => Append(e.Data + "\n")); };
@@ -174,9 +223,37 @@ internal sealed class MainForm : Form
         await activeProcess.WaitForExitAsync();
         var code = activeProcess.ExitCode;
         Append($"Process finished with exit code {code}.\n");
+        status.Text = code == 0 ? "Completed successfully" : $"Failed (exit code {code})";
         activeProcess.Dispose();
         activeProcess = null;
         run.Enabled = true;
+    }
+
+    private void OpenOutputFolder()
+    {
+        var target = output.Text;
+        var folder = string.IsNullOrWhiteSpace(target) ? repositoryRoot : Path.GetDirectoryName(Path.GetFullPath(target)) ?? repositoryRoot;
+        Process.Start(new ProcessStartInfo("explorer.exe", folder) { UseShellExecute = true });
+    }
+
+    private void ResetForm()
+    {
+        root.Clear();
+        input.Clear();
+        output.Clear();
+        passwordEnv.Clear();
+        passwordFile.Clear();
+        decodedLog.Clear();
+        log.Clear();
+        results.Clear();
+        allDrives.Checked = false;
+        verify.Checked = false;
+        passwordSearch.Checked = false;
+        verbose.Checked = true;
+        network.SelectedIndex = 0;
+        command.SelectedIndex = 0;
+        feed.Clear();
+        status.Text = "Ready";
     }
 
     private static void AddArgument(ProcessStartInfo psi, string name, string value, bool enabled = true)
@@ -184,6 +261,17 @@ internal sealed class MainForm : Form
         if (!enabled || string.IsNullOrWhiteSpace(value)) return;
         psi.ArgumentList.Add(name);
         psi.ArgumentList.Add(Path.GetFullPath(value));
+    }
+
+    internal sealed class HorizonColorTable : ProfessionalColorTable
+    {
+        public override Color MenuBorder => Color.FromArgb(40, 79, 112);
+        public override Color MenuItemBorder => Color.FromArgb(67, 137, 172);
+        public override Color MenuItemSelected => Color.FromArgb(24, 70, 103);
+        public override Color ToolStripDropDownBackground => Color.FromArgb(13, 31, 55);
+        public override Color ImageMarginGradientBegin => Color.FromArgb(13, 31, 55);
+        public override Color ImageMarginGradientMiddle => Color.FromArgb(13, 31, 55);
+        public override Color ImageMarginGradientEnd => Color.FromArgb(13, 31, 55);
     }
 
     private void Append(string text)

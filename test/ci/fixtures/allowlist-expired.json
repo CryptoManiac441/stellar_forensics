@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Expired fixture allowlist.",
+  "exceptions": [
+    {
+      "id": "GHSA-ffff-ffff-ffff",
+      "package": "left-pad",
+      "reason": "Temporary exception that must not survive past expiry.",
+      "expires": "2020-01-01"
+    }
+  ]
+}

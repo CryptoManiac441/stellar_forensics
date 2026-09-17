@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "description": "Production-dependency advisory exceptions for the deploy-facing npm audit gate. DevDependency-only advisories are omitted from the gate via npm audit --omit=dev. Every exception requires id, package, reason, and expires (ISO-8601 calendar date). An empty exceptions array means zero production exceptions.",
+  "exceptions": []
+}

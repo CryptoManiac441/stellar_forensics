@@ -9,7 +9,10 @@
   },
   "scripts": {
     "start": "node src/cli.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:ci": "node scripts/ci/run-matrix-cell.mjs",
+    "test:headed": "node scripts/ci/run-headed-local.mjs",
+    "audit:production": "node scripts/ci/production-audit.mjs"
   },
   "engines": {
     "node": ">=22.12.0"

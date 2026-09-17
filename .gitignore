@@ -6,3 +6,8 @@ secrets.txt.sources.json
 *.log
 decoded-data.jsonl
 *.jsonl
+diagnostics/
+diagnostics-cells/
+diagnostics-summary/
+.scannerwork/
+scripts/.github/

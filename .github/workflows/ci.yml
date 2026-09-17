@@ -1,0 +1,174 @@
+# Production CI for stellar_forensics.
+# Lanes implemented in this file:
+#   1. Native headless Node tests; no virtual display server.
+#   2. OS x Node matrix with fail-fast disabled and post-run diagnostic aggregation.
+#   3. Production-facing npm audit (devDependencies omitted) plus an allowlist tool.
+#   4. Sonar quality gate bound to vars.SONAR_HOST_URL / secrets.SONAR_TOKEN; fail closed.
+#   5. Every Action is pinned to a 40-character commit SHA with a version comment.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  HEADED: "0"
+  PLAYWRIGHT_HEADLESS: "1"
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node-${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: ["22"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run native-headless tests and write cell diagnostics
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MATRIX_NODE: ${{ matrix.node-version }}
+        run: npm run test:ci
+
+      - name: Upload cell diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostics-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: diagnostics/
+          if-no-files-found: error
+          retention-days: 14
+
+  matrix-diagnostics:
+    name: matrix-diagnostics
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Download cell diagnostics
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: diagnostics-cells
+          pattern: diagnostics-*
+          merge-multiple: false
+
+      - name: Aggregate matrix diagnostics
+        run: node scripts/ci/aggregate-diagnostics.mjs --input-dir diagnostics-cells --markdown-out diagnostics-summary/summary.md --json-out diagnostics-summary/summary.json
+
+      - name: Upload diagnostics summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostics-summary
+          path: diagnostics-summary/
+          if-no-files-found: error
+          retention-days: 14
+
+  production-audit:
+    name: production-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture informational full-tree audit
+        continue-on-error: true
+        run: |
+          node -e "require('fs').mkdirSync('diagnostics', { recursive: true })"
+          npm audit --json > diagnostics/full-tree-audit.json
+
+      # Lane 3: scripts/ci/production-audit.mjs runs `npm audit --omit=dev`.
+      # The previous step captures a full-tree report for humans only and cannot fail the job.
+      - name: Gate on production-facing audit
+        run: npm run audit:production
+
+      - name: Upload audit diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: diagnostics-production-audit
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
+
+  sonar-quality-gate:
+    name: sonar-quality-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Require Sonar host URL and token
+        id: sonar_gateway
+        env:
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: node scripts/ci/require-sonar-gateway.mjs
+
+      - name: SonarQube scan and wait for quality gate
+        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
+        env:
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: ${{ steps.sonar_gateway.outputs.scanner_args }}

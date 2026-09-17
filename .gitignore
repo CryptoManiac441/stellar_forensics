@@ -1,4 +1,6 @@
 node_modules/
+desktop/bin/
+desktop/obj/
 results.json
 report.txt
 secrets.txt

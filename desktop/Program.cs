@@ -69,8 +69,8 @@ internal sealed class MainForm : Form
     {
         var panel = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
         var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Padding = new Padding(4) };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
         Add(layout, "Operation", command, null, "Choose Scan to discover keys, Verify to check a key file, or Report to format saved results.");
         Add(layout, "Bounded scan root", root, "C:\\Users\\me\\Documents", "Folder to scan. Use this for a controlled test instead of scanning every drive.");
@@ -110,7 +110,7 @@ internal sealed class MainForm : Form
             AutoSize = true,
             MaximumSize = new Size(340, 0),
             ForeColor = Color.FromArgb(145, 164, 189),
-            Padding = new Padding(7, 7, 3, 3)
+            Padding = new Padding(2, 7, 3, 3)
         }, 2, row);
     }
 

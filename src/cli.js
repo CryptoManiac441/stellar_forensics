@@ -239,6 +239,12 @@ export function groupCandidates(matches) {
   return [...grouped.values()];
 }
 
+export function isArchiveSignature(buffer) {
+  const signature = buffer.toString("hex");
+  return signature.startsWith("504b0304") || signature.startsWith("377abcaf271c") ||
+    signature.startsWith("526172211a07") || signature.startsWith("1f8b");
+}
+
 async function scanDirectory(directory, matches, seen, logger, passwords, decodedSink) {
   let entries;
   try {
@@ -258,13 +264,11 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
     seen.add(filePath);
     try {
       const candidates = [];
-      const header = Buffer.alloc(4);
+      const header = Buffer.alloc(6);
       const handle = await fs.open(filePath, "r");
-      await handle.read(header, 0, 4, 0);
+      await handle.read(header, 0, 6, 0);
       await handle.close();
-      const signature = header.toString("hex");
-      const archive = signature.startsWith("504b0304") || signature.startsWith("377abcaf271c") ||
-        signature.startsWith("526172211a07") || signature.startsWith("1f8b");
+      const archive = isArchiveSignature(header);
       if (archive) {
         candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {
           passwords,

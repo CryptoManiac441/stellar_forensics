@@ -9,7 +9,7 @@ import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
-import { groupCandidates, horizonFailureStatus } from "../src/cli.js";
+import { groupCandidates, horizonFailureStatus, isArchiveSignature } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -101,6 +101,14 @@ test("Horizon failures have distinct statuses", () => {
   assert.equal(horizonFailureStatus({ response: { status: 503 } }), "horizon_server_error");
   assert.equal(horizonFailureStatus({ code: "ETIMEDOUT" }), "horizon_timeout");
   assert.equal(horizonFailureStatus(new Error("offline")), "horizon_unavailable");
+});
+
+test("archive signatures are recognized from the scan header", () => {
+  assert.equal(isArchiveSignature(Buffer.from("504b0304", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("377abcaf271c", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("526172211a07", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("1f8b", "hex")), true);
+  assert.equal(isArchiveSignature(Buffer.from("00000000", "hex")), false);
 });
 
 test("Node engine matches the upgraded Stellar SDK requirement", async () => {

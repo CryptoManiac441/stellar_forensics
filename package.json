@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node src/cli.js",
-    "start:web": "node src/server.js",
+    "start:desktop": "dotnet run --project desktop/StellarForensics.Desktop.csproj",
     "test": "node --test"
   },
   "engines": {

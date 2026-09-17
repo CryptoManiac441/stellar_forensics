@@ -1,0 +1,15 @@
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\bin\Debug\net8.0-windows\StellarForensics.Desktop.exe
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\bin\Debug\net8.0-windows\StellarForensics.Desktop.deps.json
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\bin\Debug\net8.0-windows\StellarForensics.Desktop.runtimeconfig.json
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\bin\Debug\net8.0-windows\StellarForensics.Desktop.dll
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\bin\Debug\net8.0-windows\StellarForensics.Desktop.pdb
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.AssemblyInfoInputs.cache
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.AssemblyInfo.cs
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.csproj.CoreCompileInputs.cache
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.sourcelink.json
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.dll
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\refint\StellarForensics.Desktop.dll
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.pdb
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\StellarForensics.Desktop.genruntimeconfig.cache
+C:\Users\white\Projects\copilot-worktrees\stellar_forensics\cryptomaniac441-animated-potato\desktop\obj\Debug\net8.0-windows\ref\StellarForensics.Desktop.dll

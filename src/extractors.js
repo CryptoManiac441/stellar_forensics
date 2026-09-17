@@ -114,7 +114,7 @@ function extractWav(buffer) {
 
 export const EXTRACTOR_REGISTRY = [
   { name: "raw-bytes", carrier: "text", extract: (buffer) => payloadResult(strings(buffer), "raw-bytes") },
-  { name: "encoded-payloads", carrier: "base64/hex", extract: extractEncoded },
+  { name: "encoded-payloads", carrier: "base64/hex", extract: (buffer, options) => extractEncoded(buffer, options?.onDecoded) },
   { name: "png-chunks", carrier: "png", extract: extractPng },
   { name: "jpeg-segments", carrier: "jpeg", extract: extractJpeg },
   { name: "wav-chunks", carrier: "wav", extract: extractWav }
@@ -178,7 +178,7 @@ async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded) {
 }
 
 export async function extractFromBuffer(buffer, sourcePath, options = {}) {
-  const results = EXTRACTOR_REGISTRY.flatMap((extractor) => extractor.extract(buffer));
+  const results = EXTRACTOR_REGISTRY.flatMap((extractor) => extractor.extract(buffer, options));
   const compressed = [];
   const compressionAttempts = [
     ["gzip", () => gunzipSync(buffer)],
@@ -197,13 +197,12 @@ export async function extractFromBuffer(buffer, sourcePath, options = {}) {
       // Most files are not in this compression format.
     }
   }
-  const encodedResults = extractEncoded(buffer, options.onDecoded);
   const archiveResults = await extractWithSevenZip(buffer, sourcePath, options.passwords ?? [], options.onDecoded);
   if (buffer.includes(Buffer.from("STELLAR_FORensics_PAYLOAD"))) {
     const offset = buffer.indexOf(Buffer.from("STELLAR_FORensics_PAYLOAD"));
     results.push(...payloadResult(strings(buffer.subarray(offset)), "appended-data", { offset }));
   }
-  return [...results, ...encodedResults, ...compressed, ...archiveResults]
+  return [...results, ...compressed, ...archiveResults]
     .map((result) => ({ ...result, source_path: result.source_path ?? sourcePath }));
 }
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";

@@ -58,7 +58,7 @@ function extractEncoded(buffer, onDecoded) {
   return results;
 }
 
-function extractPng(buffer) {
+function extractPng(buffer, onDecoded) {
   if (!buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return [];
   const results = [];
   let offset = 8;
@@ -69,6 +69,7 @@ function extractPng(buffer) {
     const dataEnd = dataStart + length;
     if (dataEnd + 4 > buffer.length) break;
     if (["tEXt", "zTXt", "iTXt"].includes(type)) {
+      onDecoded?.(buffer.subarray(dataStart, dataEnd), { extractor: "png-chunk", chunk: type, offset: dataStart });
       results.push(...payloadResult(strings(buffer.subarray(dataStart, dataEnd)), "png-chunk", { chunk: type, offset: dataStart }));
     }
     offset = dataEnd + 4;
@@ -77,7 +78,7 @@ function extractPng(buffer) {
   return results;
 }
 
-function extractJpeg(buffer) {
+function extractJpeg(buffer, onDecoded) {
   if (buffer[0] !== 0xff || buffer[1] !== 0xd8) return [];
   const results = [];
   let offset = 2;
@@ -89,6 +90,7 @@ function extractJpeg(buffer) {
     const dataEnd = offset + 2 + length;
     if (dataEnd > buffer.length || length < 2) break;
     if (marker === 0xfe || (marker >= 0xe0 && marker <= 0xef)) {
+      onDecoded?.(buffer.subarray(dataStart, dataEnd), { extractor: "jpeg-segment", marker: `0x${marker.toString(16)}`, offset: dataStart });
       results.push(...payloadResult(strings(buffer.subarray(dataStart, dataEnd)), "jpeg-segment", { marker: `0x${marker.toString(16)}`, offset: dataStart }));
     }
     offset = dataEnd;
@@ -96,7 +98,7 @@ function extractJpeg(buffer) {
   return results;
 }
 
-function extractWav(buffer) {
+function extractWav(buffer, onDecoded) {
   if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") return [];
   const results = [];
   let offset = 12;
@@ -106,6 +108,7 @@ function extractWav(buffer) {
     const start = offset + 8;
     const end = start + length;
     if (end > buffer.length) break;
+    onDecoded?.(buffer.subarray(start, end), { extractor: "wav-chunk", chunk: type, offset: start });
     results.push(...payloadResult(strings(buffer.subarray(start, end)), "wav-chunk", { chunk: type, offset: start }));
     offset = end + (length % 2);
   }
@@ -131,9 +134,12 @@ async function sevenZipPath() {
   }
 }
 
-async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded) {
+async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded, onArchiveEvent) {
   const executable = await sevenZipPath();
-  if (!executable) return [];
+  if (!executable) {
+    onArchiveEvent?.({ source: sourcePath, status: "extractor_unavailable" });
+    return [];
+  }
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-"));
   const archivePath = path.join(temporaryRoot, (path.basename(sourcePath).replace(/[<>:"/\\|?*]/g, "_") || "carrier.bin"));
   const outputPath = path.join(temporaryRoot, "out");
@@ -166,7 +172,13 @@ async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded) {
         }
         await walk(outputPath);
         return results;
-      } catch {
+      } catch (error) {
+        onArchiveEvent?.({
+          source: sourcePath,
+          status: "attempt_failed",
+          error: error instanceof Error ? error.message : String(error),
+          password_attempted: Boolean(password)
+        });
         await fs.rm(outputPath, { recursive: true, force: true });
         await fs.mkdir(outputPath);
       }
@@ -178,7 +190,7 @@ async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded) {
 }
 
 export async function extractFromBuffer(buffer, sourcePath, options = {}) {
-  const results = EXTRACTOR_REGISTRY.flatMap((extractor) => extractor.extract(buffer));
+  const results = EXTRACTOR_REGISTRY.flatMap((extractor) => extractor.extract(buffer, options.onDecoded));
   const compressed = [];
   const compressionAttempts = [
     ["gzip", () => gunzipSync(buffer)],
@@ -197,13 +209,14 @@ export async function extractFromBuffer(buffer, sourcePath, options = {}) {
       // Most files are not in this compression format.
     }
   }
-  const encodedResults = extractEncoded(buffer, options.onDecoded);
-  const archiveResults = await extractWithSevenZip(buffer, sourcePath, options.passwords ?? [], options.onDecoded);
+  const archiveResults = options.allowArchives === false
+    ? []
+    : await extractWithSevenZip(buffer, sourcePath, options.passwords ?? [], options.onDecoded, options.onArchiveEvent);
   if (buffer.includes(Buffer.from("STELLAR_FORensics_PAYLOAD"))) {
     const offset = buffer.indexOf(Buffer.from("STELLAR_FORensics_PAYLOAD"));
     results.push(...payloadResult(strings(buffer.subarray(offset)), "appended-data", { offset }));
   }
-  return [...results, ...encodedResults, ...compressed, ...archiveResults]
+  return [...results, ...compressed, ...archiveResults]
     .map((result) => ({ ...result, source_path: result.source_path ?? sourcePath }));
 }
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";

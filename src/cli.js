@@ -134,6 +134,14 @@ function derive(secret) {
   return { publicKey: keypair.publicKey(), secret };
 }
 
+export function horizonFailureStatus(error) {
+  const status = error?.response?.status;
+  if (status === 429) return "horizon_rate_limited";
+  if (status >= 500) return "horizon_server_error";
+  if (error?.name === "AbortError" || error?.code === "ETIMEDOUT") return "horizon_timeout";
+  return "horizon_unavailable";
+}
+
 async function verifySecret(candidate, horizon, network, baseReserveXlm, logger) {
   const secret = candidate.secret_key;
   const record = {
@@ -198,8 +206,9 @@ async function verifySecret(candidate, horizon, network, baseReserveXlm, logger)
         record.verification_status = "valid_key_account_not_found";
         logger.write("horizon_account_not_found", { record_id: record.record_id, public_key: publicKey });
       } else {
+        record.verification_status = horizonFailureStatus(error);
         logger.write("horizon_request_failed", { record_id: record.record_id, public_key: publicKey, error: String(error) });
-        throw error;
+        record.error = error instanceof Error ? error.message : String(error);
       }
     }
   } catch (error) {
@@ -253,16 +262,26 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
       const handle = await fs.open(filePath, "r");
       await handle.read(header, 0, 4, 0);
       await handle.close();
-      const compressed = header[0] === 0x1f && header[1] === 0x8b;
-      if (compressed) {
-        candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, { passwords, onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }) }));
+      const signature = header.toString("hex");
+      const archive = signature.startsWith("504b0304") || signature.startsWith("377abcaf271c") ||
+        signature.startsWith("526172211a07") || signature.startsWith("1f8b");
+      if (archive) {
+        candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {
+          passwords,
+          onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }),
+          onArchiveEvent: (details) => logger.write("archive_extraction", details)
+        }));
       }
-      const stream = compressed ? null : createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+      const stream = archive ? null : createReadStream(filePath, { highWaterMark: 1024 * 1024 });
       let remainder = Buffer.alloc(0);
       if (stream) {
         for await (const chunk of stream) {
           const window = Buffer.concat([remainder, chunk]);
-          candidates.push(...await extractFromBuffer(window, filePath, { passwords: [], onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }) }));
+          candidates.push(...await extractFromBuffer(window, filePath, {
+            passwords: [],
+            allowArchives: false,
+            onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath })
+          }));
           remainder = window.subarray(Math.max(0, window.length - 128));
         }
       }

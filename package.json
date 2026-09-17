@@ -9,7 +9,10 @@
   },
   "scripts": {
     "start": "node src/cli.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:functional": "node --test --test-reporter spec",
+    "test:headed": "node scripts/headed-smoke.mjs --headed",
+    "test:headed:headless": "node scripts/headed-smoke.mjs --headless"
   },
   "engines": {
     "node": ">=22.12.0"

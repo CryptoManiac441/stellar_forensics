@@ -14,7 +14,7 @@ const DEFAULT_HORIZON = "https://horizon.stellar.org";
 
 function usage() {
   console.log(`Usage:
-      stellar-forensics scan --all-drives [--verify] [--network public|testnet] [--password-search] [--password-env NAME] [--output secrets.txt] [--verbose] [--log scan.log]
+      stellar-forensics scan --all-drives [--verify] [--network public|testnet] [--password-search all-drives] [--password-env NAME] [--password-file FILE] [--output secrets.txt] [--verbose] [--log scan.log]
       stellar-forensics verify <secret-file> [--network public|testnet] [--output report.json] [--verbose] [--log verify.log]
       stellar-forensics report <results.json> [--output report.txt] [--verbose] [--log report.log]
 
@@ -46,7 +46,7 @@ function usage() {
     };
   }
 
-function parseArgs(args) {
+export function parseArgs(args) {
   const options = {};
   const positional = [];
   for (let i = 0; i < args.length; i += 1) {
@@ -91,7 +91,7 @@ async function passwordCandidates(options, logger) {
   if (options["password-file"]) {
     candidates.push(...await findPasswordCandidates({ files: [path.resolve(options["password-file"])] }));
   }
-  if (options["password-search"] === true || options["password-search"] === "true") {
+  if (options["password-search"] === "all-drives") {
     candidates.push(...await findPasswordCandidates({ allDrives: true }));
   }
   const unique = [...new Set(candidates)];
@@ -100,7 +100,7 @@ async function passwordCandidates(options, logger) {
     sources: {
       environment: candidates.length > 0,
       password_file: Boolean(options["password-file"]),
-      all_drives: options["password-search"] === true || options["password-search"] === "true"
+      all_drives: options["password-search"] === "all-drives"
     }
   });
   if (unique.length > 0) return unique;
@@ -310,6 +310,9 @@ async function scanDirectory(directory, matches, seen, logger, passwords, decode
 async function scanCommand(options) {
   const logger = createLogger(options, "scan");
   const decodedSink = createDecodedSink(options);
+  if (options["password-search"] !== undefined && options["password-search"] !== "all-drives") {
+    throw new Error('Invalid --password-search scope. Use "--password-search all-drives".');
+  }
   let passwords = [];
   try {
     passwords = await passwordCandidates(options, logger);

@@ -68,33 +68,34 @@ internal sealed class MainForm : Form
     private Control BuildControls()
     {
         var panel = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(4) };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 66));
-        Add(layout, "Operation", command);
-        Add(layout, "Bounded scan root", root, "C:\\Users\\me\\Documents");
-        Add(layout, "", allDrives);
-        Add(layout, "Input file", input, "secrets.txt or results.json");
-        Add(layout, "Network", network);
-        Add(layout, "Output file", output, "C:\\temp\\output.txt");
-        Add(layout, "", verify);
-        Add(layout, "", verbose);
-        Add(layout, "", passwordSearch);
-        Add(layout, "Password env var", passwordEnv, "ARCHIVE_PASSWORD");
-        Add(layout, "Password file", passwordFile);
-        Add(layout, "Decoded JSONL", decodedLog, "decoded-data.jsonl");
-        Add(layout, "Verbose log", log, "scan.log");
-        Add(layout, "Verification results", results, "scan-results.json");
+        var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Padding = new Padding(4) };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+        Add(layout, "Operation", command, null, "Choose Scan to discover keys, Verify to check a key file, or Report to format saved results.");
+        Add(layout, "Bounded scan root", root, "C:\\Users\\me\\Documents", "Folder to scan. Use this for a controlled test instead of scanning every drive.");
+        Add(layout, "", allDrives, null, "Scan every mounted Windows drive. This can take a long time and may encounter protected folders.");
+        Add(layout, "Input file", input, "secrets.txt or results.json", "File used by Verify or Report. Verify reads secret keys; Report reads verification JSON.");
+        Add(layout, "Network", network, null, "Select the Stellar Horizon network to query for account data.");
+        Add(layout, "Output file", output, "C:\\temp\\output.txt", "Where the selected operation writes its main text or JSON output.");
+        Add(layout, "", verify, null, "After scanning, derive public keys locally and query Horizon without sending secret keys.");
+        Add(layout, "", verbose, null, "Write detailed discovery, archive, verification, and error events to the verbose log.");
+        Add(layout, "", passwordSearch, null, "Search for password candidates only when a recognized archive needs them.");
+        Add(layout, "Password env var", passwordEnv, "ARCHIVE_PASSWORD", "Optional environment variable name containing an archive password.");
+        Add(layout, "Password file", passwordFile, null, "Optional file containing labeled password or passphrase entries for encrypted containers.");
+        Add(layout, "Decoded JSONL", decodedLog, "decoded-data.jsonl", "Path for decoded binary and nested payload records with source provenance.");
+        Add(layout, "Verbose log", log, "scan.log", "Path for the JSONL audit log containing scan progress and errors.");
+        Add(layout, "Verification results", results, "scan-results.json", "Path for Horizon verification records, public-key matches, balances, and statuses.");
         var note = new Label { Text = "Private keys remain local. Horizon receives only derived public keys.", AutoSize = true, ForeColor = Color.FromArgb(85, 214, 190), Padding = new Padding(0, 14, 0, 14) };
         layout.Controls.Add(note, 0, layout.RowCount);
-        layout.SetColumnSpan(note, 2);
+        layout.SetColumnSpan(note, 3);
         layout.Controls.Add(run, 0, layout.RowCount);
-        layout.SetColumnSpan(run, 2);
+        layout.SetColumnSpan(run, 3);
         panel.Controls.Add(layout);
         return panel;
     }
 
-    private static void Add(TableLayoutPanel layout, string label, Control control, string? placeholder = null)
+    private static void Add(TableLayoutPanel layout, string label, Control control, string? placeholder = null, string? description = null)
     {
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var row = layout.RowCount++;
@@ -103,6 +104,14 @@ internal sealed class MainForm : Form
         control.Margin = new Padding(3, 4, 3, 4);
         if (control is TextBox text && placeholder is not null) text.PlaceholderText = placeholder;
         layout.Controls.Add(control, 1, row);
+        layout.Controls.Add(new Label
+        {
+            Text = description ?? string.Empty,
+            AutoSize = true,
+            MaximumSize = new Size(340, 0),
+            ForeColor = Color.FromArgb(145, 164, 189),
+            Padding = new Padding(7, 7, 3, 3)
+        }, 2, row);
     }
 
     private void UpdateCommandView()

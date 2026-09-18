@@ -103,15 +103,21 @@ async function passwordCandidates(options, logger) {
   return unique;
 }
 
-async function loadContainerPasswords(options, logger, state) {
-  if (options["password-search"] !== "containers" || state.loaded) return [];
+export async function loadContainerPasswords(options, logger, state, search = findPasswordCandidates) {
+  if (options["password-search"] !== "containers") return [];
+  if (state.loaded) return state.candidates ?? [];
   state.loaded = true;
+  state.candidates = [];
   try {
-    const candidates = await findPasswordCandidates({ allDrives: true });
+    const candidates = await search({ allDrives: true });
     logger.write("container_password_search_completed", { candidate_count: candidates.length });
-    if (candidates.length > 0) return candidates;
+    if (candidates.length > 0) {
+      state.candidates = candidates;
+      return candidates;
+    }
     const prompted = await promptForPassword();
-    return prompted ? [prompted] : [];
+    state.candidates = prompted ? [prompted] : [];
+    return state.candidates;
   } catch (error) {
     logger.write("container_password_search_failed", { error: error instanceof Error ? error.message : String(error) });
     return [];

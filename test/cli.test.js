@@ -9,7 +9,7 @@ import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
-import { groupCandidates, horizonFailureStatus, isArchiveSignature, parseArgs } from "../src/cli.js";
+import { groupCandidates, horizonFailureStatus, isArchiveSignature, loadContainerPasswords, parseArgs } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,6 +119,33 @@ test("archive signatures are recognized from the scan header", () => {
 test("password search requires an explicit scope", () => {
   assert.deepEqual(parseArgs(["scan", "--password-search", "containers"]).options["password-search"], "containers");
   assert.throws(() => parseArgs(["scan", "--password-search"]));
+});
+
+test("container passwords are reused for later archives", async () => {
+  const logger = { write() {} };
+  const state = { loaded: false };
+  let searchCalls = 0;
+  const search = async () => {
+    searchCalls += 1;
+    return ["reused-password"];
+  };
+  const first = await loadContainerPasswords({ "password-search": "containers" }, logger, state, search);
+  const second = await loadContainerPasswords({ "password-search": "containers" }, logger, state, search);
+  assert.deepEqual(first, ["reused-password"]);
+  assert.deepEqual(second, ["reused-password"]);
+  assert.equal(searchCalls, 1);
+});
+
+test("container password search is skipped without an explicit containers scope", async () => {
+  const logger = { write() {} };
+  let searchCalls = 0;
+  const search = async () => {
+    searchCalls += 1;
+    return ["unused-password"];
+  };
+  const result = await loadContainerPasswords({}, logger, { loaded: false }, search);
+  assert.deepEqual(result, []);
+  assert.equal(searchCalls, 0);
 });
 
 test("Node engine matches the upgraded Stellar SDK requirement", async () => {

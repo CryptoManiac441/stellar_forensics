@@ -19,7 +19,9 @@ internal sealed class MainForm : Form
     private readonly ComboBox command = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox projectName = new();
     private readonly TextBox root = new();
-    private readonly TextBox scanFile = new();
+    private readonly TextBox scanFile = new() { Width = 250, PlaceholderText = "C:\\path\\file.rtf" };
+    private readonly Button browseScanFile = new() { Text = "Browse...", AutoSize = true };
+    private readonly FlowLayoutPanel scanFilePicker = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
     private readonly CheckBox allDrives = new() { Text = "Scan all mounted drives" };
     private readonly TextBox input = new();
     private readonly ComboBox network = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -68,6 +70,7 @@ internal sealed class MainForm : Form
         run.Click += async (_, _) => await RunOperationAsync();
         command.SelectedIndexChanged += (_, _) => UpdateCommandView();
         allDrives.CheckedChanged += (_, _) => root.Enabled = !allDrives.Checked;
+        browseScanFile.Click += (_, _) => BrowseScanFile();
         Controls.Add(BuildWindow());
         UpdateCommandView();
     }
@@ -179,7 +182,9 @@ internal sealed class MainForm : Form
         Add(layout, "Project name", projectName, "Stellar Forensics", "Name for this investigation. A dedicated folder with this name is created on the Desktop for default results and logs.");
         Add(layout, "Operation", command, null, "Choose Scan to discover keys, Verify to check a key file, or Report to format saved results.");
         Add(layout, "Bounded scan root", root, "C:\\Users\\me\\Documents", "Folder to scan. Use this for a controlled test instead of scanning every drive.");
-        Add(layout, "Exact scan file", scanFile, "C:\\path\\file.rtf", "Scan only this one file. This is the safest way to wet-test a specific carrier.");
+        scanFilePicker.Controls.Add(scanFile);
+        scanFilePicker.Controls.Add(browseScanFile);
+        Add(layout, "Exact scan file", scanFilePicker, null, "Scan only this one file. This is the safest way to wet-test a specific carrier.");
         Add(layout, "", allDrives, null, "Scan every mounted Windows drive. This can take a long time and may encounter protected folders.");
         Add(layout, "Input file", input, "secrets.txt or results.json", "Used by Verify or Report: select a secret-key file or saved verification JSON. Not used during Scan.");
         Add(layout, "Network", network, null, "Select the Stellar Horizon network to query for account data.");
@@ -225,7 +230,7 @@ internal sealed class MainForm : Form
         var scan = command.SelectedItem?.ToString() == "Scan";
         allDrives.Visible = scan;
         root.Visible = scan;
-        scanFile.Visible = scan;
+        scanFilePicker.Visible = scan;
         verify.Visible = scan;
         passwordSearch.Visible = scan;
         input.Visible = true;
@@ -406,6 +411,18 @@ internal sealed class MainForm : Form
             input.Text = dialog.FileName;
             command.SelectedItem = dialog.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? "Report" : "Verify";
         }
+    }
+
+    private void BrowseScanFile()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Select an exact scan file",
+            Filter = "All files|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) == DialogResult.OK) scanFile.Text = dialog.FileName;
     }
 
     private void SaveActivityFeed()

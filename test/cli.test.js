@@ -9,7 +9,7 @@ import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
-import { groupCandidates, horizonFailureStatus, isArchiveSignature, parseArgs } from "../src/cli.js";
+import { groupCandidates, horizonFailureStatus, isArchiveSignature, loadRecentTransactions, parseArgs } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -101,6 +101,36 @@ test("Horizon failures have distinct statuses", () => {
   assert.equal(horizonFailureStatus({ response: { status: 503 } }), "horizon_server_error");
   assert.equal(horizonFailureStatus({ code: "ETIMEDOUT" }), "horizon_timeout");
   assert.equal(horizonFailureStatus(new Error("offline")), "horizon_unavailable");
+});
+
+test("Horizon account transactions use collection options, not call-builder chaining", async () => {
+  const seen = [];
+  const account = {
+    async transactions(options) {
+      seen.push(options);
+      return {
+        records: [{
+          id: "tx1",
+          hash: "abc",
+          created_at: "2026-01-01T00:00:00Z",
+          ledger: 1,
+          successful: true,
+          fee_charged: "100",
+          operation_count: 1,
+          memo: null,
+          memo_type: "none"
+        }]
+      };
+    }
+  };
+  const pending = account.transactions();
+  assert.equal(typeof pending.then, "function");
+  assert.equal(pending.limit, undefined);
+  const records = await loadRecentTransactions(account);
+  assert.deepEqual(seen[seen.length - 1], { limit: 10, order: "desc" });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].id, "tx1");
+  assert.equal(records[0].hash, "abc");
 });
 
 test("archive signatures are recognized from the scan header", () => {

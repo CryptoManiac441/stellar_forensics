@@ -152,6 +152,21 @@ export function horizonFailureStatus(error) {
   return "horizon_unavailable";
 }
 
+export async function loadRecentTransactions(account) {
+  const page = await account.transactions({ limit: 10, order: "desc" });
+  return (page?.records ?? []).map((transaction) => ({
+    id: transaction.id,
+    hash: transaction.hash,
+    created_at: transaction.created_at,
+    ledger: transaction.ledger,
+    successful: transaction.successful,
+    fee_charged: transaction.fee_charged,
+    operation_count: transaction.operation_count,
+    memo: transaction.memo,
+    memo_type: transaction.memo_type
+  }));
+}
+
 async function verifySecret(candidate, horizon, network, baseReserveXlm, logger) {
   const secret = candidate.secret_key;
   const record = {
@@ -173,7 +188,7 @@ async function verifySecret(candidate, horizon, network, baseReserveXlm, logger)
     logger.write("secret_derived", { record_id: record.record_id, secret_key: secret, derived_public_key: publicKey });
     try {
       const account = await horizon.loadAccount(publicKey);
-      const transactions = await account.transactions().limit(10).order("desc").call();
+      const recentTransactions = await loadRecentTransactions(account);
       record.account_found = true;
       record.account = {
         id: account.id,
@@ -195,17 +210,7 @@ async function verifySecret(candidate, horizon, network, baseReserveXlm, logger)
           const native = account.balances.find((balance) => balance.asset_type === "native");
           return native ? Number(native.balance) - (2 + account.subentry_count) * baseReserveXlm : null;
         })(),
-        recent_transactions: transactions.records.map((transaction) => ({
-          id: transaction.id,
-          hash: transaction.hash,
-          created_at: transaction.created_at,
-          ledger: transaction.ledger,
-          successful: transaction.successful,
-          fee_charged: transaction.fee_charged,
-          operation_count: transaction.operation_count,
-          memo: transaction.memo,
-          memo_type: transaction.memo_type
-        }))
+        recent_transactions: recentTransactions
       };
       record.horizon_account_id = account.id;
       record.public_key_match = account.id === publicKey;

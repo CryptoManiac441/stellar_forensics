@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
 import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
-import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
+import { environmentPasswordCandidates, findPasswordCandidates, parsePasswordCandidates, rememberCanonicalPath } from "../src/passwords.js";
 import { groupCandidates, horizonFailureStatus, isArchiveSignature, parseArgs } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
@@ -82,6 +82,39 @@ test("password candidates come from labeled files and environment variables", ()
     PATH: "ignored",
     STELLAR_PASSPHRASE: "beta"
   }), ["alpha", "beta"]);
+});
+
+test("canonical path tracking visits a directory only once even via a symlink", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-cycle-"));
+  try {
+    await fs.symlink(root, path.join(root, "loop"));
+    const visited = new Set();
+    assert.equal(await rememberCanonicalPath(visited, root), await fs.realpath(root));
+    assert.equal(await rememberCanonicalPath(visited, path.join(root, "loop")), null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("password search terminates when a directory links back to an ancestor", { timeout: 5000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "stellar-forensics-pass-cycle-"));
+  const originalReaddir = fs.readdir;
+  let readdirCount = 0;
+  fs.readdir = async (...args) => {
+    readdirCount += 1;
+    if (readdirCount > 8) throw new Error(`directory walk did not terminate (readdir called ${readdirCount} times)`);
+    return originalReaddir.apply(fs, args);
+  };
+  try {
+    await fs.writeFile(path.join(root, "notes.txt"), "password: cycle-secret\n");
+    await fs.symlink(root, path.join(root, "loop"));
+    const candidates = await findPasswordCandidates({ files: [root] });
+    assert.deepEqual(candidates, ["cycle-secret"]);
+    assert.equal(readdirCount, 1);
+  } finally {
+    fs.readdir = originalReaddir;
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 test("scan candidates become structured Horizon-ready records", () => {

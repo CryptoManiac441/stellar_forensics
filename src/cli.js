@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { extractFromBuffer, SUPPORTED_CARRIERS } from "./extractors.js";
-import { environmentPasswordCandidates, findPasswordCandidates } from "./passwords.js";
+import { environmentPasswordCandidates, findPasswordCandidates, rememberCanonicalPath } from "./passwords.js";
 
 const DEFAULT_HORIZON = "https://horizon.stellar.org";
 
@@ -260,46 +260,52 @@ export function isArchiveSignature(buffer) {
 }
 
 async function scanDirectory(directory, matches, seen, logger, passwords, passwordState, decodedSink, options) {
+  const canonical = await rememberCanonicalPath(seen, directory);
+  if (!canonical) return;
   let entries;
   try {
-    entries = await fs.readdir(directory, { withFileTypes: true });
+    entries = await fs.readdir(canonical, { withFileTypes: true });
   } catch (error) {
-    logger.write("directory_scan_failed", { directory, error: error instanceof Error ? error.message : String(error) });
+    logger.write("directory_scan_failed", { directory: canonical, error: error instanceof Error ? error.message : String(error) });
     return;
   }
   for (const entry of entries) {
-    const filePath = path.join(directory, entry.name);
+    const filePath = path.join(canonical, entry.name);
     if (entry.name === "$Recycle.Bin" || entry.name === "System Volume Information" || entry.name === "node_modules") continue;
     if (entry.isDirectory()) {
       await scanDirectory(filePath, matches, seen, logger, passwords, passwordState, decodedSink, options);
       continue;
     }
-    if (!entry.isFile() || seen.has(filePath)) continue;
-    seen.add(filePath);
+    if (!entry.isFile()) continue;
+    const canonicalFile = await rememberCanonicalPath(seen, filePath);
+    if (!canonicalFile) continue;
     try {
       const candidates = [];
       const header = Buffer.alloc(512);
-      const handle = await fs.open(filePath, "r");
-      await handle.read(header, 0, header.length, 0);
-      await handle.close();
+      const handle = await fs.open(canonicalFile, "r");
+      try {
+        await handle.read(header, 0, header.length, 0);
+      } finally {
+        await handle.close();
+      }
       const archive = isArchiveSignature(header);
       if (archive) {
         const containerPasswords = [...passwords, ...await loadContainerPasswords(options, logger, passwordState)];
-        candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {
+        candidates.push(...await extractFromBuffer(await fs.readFile(canonicalFile), canonicalFile, {
           passwords: [...new Set(containerPasswords)],
-          onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath }),
+          onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? canonicalFile }),
           onArchiveEvent: (details) => logger.write("archive_extraction", details)
         }));
       }
-      const stream = archive ? null : createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+      const stream = archive ? null : createReadStream(canonicalFile, { highWaterMark: 1024 * 1024 });
       let remainder = Buffer.alloc(0);
       if (stream) {
         for await (const chunk of stream) {
           const window = Buffer.concat([remainder, chunk]);
-          candidates.push(...await extractFromBuffer(window, filePath, {
+          candidates.push(...await extractFromBuffer(window, canonicalFile, {
             passwords: [],
             allowArchives: false,
-            onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? filePath })
+            onDecoded: (buffer, details) => decodedSink.record(buffer, { ...details, source: details.source ?? canonicalFile })
           }));
           remainder = window.subarray(Math.max(0, window.length - 128));
         }
@@ -311,7 +317,7 @@ async function scanDirectory(directory, matches, seen, logger, passwords, passwo
       }
     } catch (error) {
       logger.write("file_scan_failed", {
-        file_path: filePath,
+        file_path: canonicalFile,
         error: error instanceof Error ? error.message : String(error)
       });
     }

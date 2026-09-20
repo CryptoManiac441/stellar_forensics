@@ -18,35 +18,48 @@ function windowsRoots() {
   return roots;
 }
 
+export async function rememberCanonicalPath(visited, target) {
+  let real;
+  try {
+    real = await fs.realpath(target);
+  } catch {
+    return null;
+  }
+  if (visited.has(real)) return null;
+  visited.add(real);
+  return real;
+}
+
 export async function findPasswordCandidates({ allDrives = false, files = [] } = {}) {
   const candidates = new Set();
   const visited = new Set();
   const paths = allDrives ? windowsRoots() : files;
 
   async function visit(target) {
+    const real = await rememberCanonicalPath(visited, target);
+    if (!real) return;
     let stat;
     try {
-      stat = await fs.stat(target);
+      stat = await fs.stat(real);
     } catch {
       return;
     }
     if (stat.isDirectory()) {
       let entries;
       try {
-        entries = await fs.readdir(target, { withFileTypes: true });
+        entries = await fs.readdir(real, { withFileTypes: true });
       } catch {
         return;
       }
       for (const entry of entries) {
         if (entry.name === "$Recycle.Bin" || entry.name === "System Volume Information" || entry.name === "node_modules") continue;
-        await visit(path.join(target, entry.name));
+        await visit(path.join(real, entry.name));
       }
       return;
     }
-    if (!stat.isFile() || visited.has(target) || stat.size > 10 * 1024 * 1024) return;
-    visited.add(target);
+    if (!stat.isFile() || stat.size > 10 * 1024 * 1024) return;
     try {
-      const text = await fs.readFile(target, "utf8");
+      const text = await fs.readFile(real, "utf8");
       for (const candidate of parsePasswordCandidates(text)) candidates.add(candidate);
     } catch {
       // Ignore unreadable and binary files; the caller can still prompt.

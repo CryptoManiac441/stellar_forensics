@@ -7,7 +7,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Keypair, Horizon } from "@stellar/stellar-sdk";
-import { extractFromBuffer, SUPPORTED_CARRIERS } from "./extractors.js";
+import { extractFromBuffer, MAX_CARRIER_BYTES, SUPPORTED_CARRIERS } from "./extractors.js";
 import { environmentPasswordCandidates, findPasswordCandidates } from "./passwords.js";
 
 const DEFAULT_HORIZON = "https://horizon.stellar.org";
@@ -255,8 +255,14 @@ export function isArchiveSignature(buffer) {
   const sevenZip = signature.startsWith("377abcaf271c");
   const rar = signature.startsWith("526172211a07");
   const gzip = signature.startsWith("1f8b");
-  const tar = buffer.length >= 265 && buffer.toString("ascii", 257, 262) === "ustar";
-  return zip || sevenZip || rar || gzip || tar;
+  // Tar is uncompressed, so the streaming raw-bytes path already sees member
+  // contents. Treating ustar as an archive slurps the whole file — including
+  // OVA appliances the CLI documents as raw VM disks — and OOMs.
+  return zip || sevenZip || rar || gzip;
+}
+
+export function shouldSlurpArchive(header, fileSize, limit = MAX_CARRIER_BYTES) {
+  return isArchiveSignature(header) && Number.isFinite(fileSize) && fileSize <= limit;
 }
 
 async function scanDirectory(directory, matches, seen, logger, passwords, passwordState, decodedSink, options) {
@@ -280,9 +286,14 @@ async function scanDirectory(directory, matches, seen, logger, passwords, passwo
       const candidates = [];
       const header = Buffer.alloc(512);
       const handle = await fs.open(filePath, "r");
-      await handle.read(header, 0, header.length, 0);
-      await handle.close();
-      const archive = isArchiveSignature(header);
+      let archive = false;
+      try {
+        await handle.read(header, 0, header.length, 0);
+        const { size } = await handle.stat();
+        archive = shouldSlurpArchive(header, size);
+      } finally {
+        await handle.close();
+      }
       if (archive) {
         const containerPasswords = [...passwords, ...await loadContainerPasswords(options, logger, passwordState)];
         candidates.push(...await extractFromBuffer(await fs.readFile(filePath), filePath, {

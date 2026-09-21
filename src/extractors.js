@@ -1,4 +1,16 @@
+import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 const SECRET_PATTERN = /\bS[A-Z2-7]{55}\b/g;
+
+/** Cap for in-memory archive slurps, zlib output, and extracted members. */
+export const MAX_CARRIER_BYTES = 64 * 1024 * 1024;
+
+const execFileAsync = promisify(execFile);
 
 export const SUPPORTED_CARRIERS = [
   "text",
@@ -123,8 +135,6 @@ export const EXTRACTOR_REGISTRY = [
   { name: "wav-chunks", carrier: "wav", extract: extractWav }
 ];
 
-const execFileAsync = promisify(execFile);
-
 async function sevenZipPath() {
   try {
     const module = await import("7zip-bin");
@@ -155,6 +165,16 @@ async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded, onA
             const memberPath = path.join(directory, entry.name);
             if (entry.isDirectory()) await walk(memberPath);
             else {
+              const memberStat = await fs.stat(memberPath);
+              if (memberStat.size > MAX_CARRIER_BYTES) {
+                onArchiveEvent?.({
+                  source: sourcePath,
+                  status: "member_too_large",
+                  member: path.relative(outputPath, memberPath),
+                  byte_length: memberStat.size
+                });
+                continue;
+              }
               const memberBuffer = await fs.readFile(memberPath);
               onDecoded?.(memberBuffer, { extractor: "archive-member", source: `${sourcePath}::${path.relative(outputPath, memberPath)}` });
               const extracted = await extractFromBuffer(
@@ -193,9 +213,9 @@ export async function extractFromBuffer(buffer, sourcePath, options = {}) {
   const results = EXTRACTOR_REGISTRY.flatMap((extractor) => extractor.extract(buffer, options.onDecoded));
   const compressed = [];
   const compressionAttempts = [
-    ["gzip", () => gunzipSync(buffer)],
-    ["deflate", () => inflateSync(buffer)],
-    ["brotli", () => brotliDecompressSync(buffer)]
+    ["gzip", () => gunzipSync(buffer, { maxOutputLength: MAX_CARRIER_BYTES })],
+    ["deflate", () => inflateSync(buffer, { maxOutputLength: MAX_CARRIER_BYTES })],
+    ["brotli", () => brotliDecompressSync(buffer, { maxOutputLength: MAX_CARRIER_BYTES })]
   ];
   for (const [compression, decompress] of compressionAttempts) {
     try {
@@ -219,9 +239,3 @@ export async function extractFromBuffer(buffer, sourcePath, options = {}) {
   return [...results, ...compressed, ...archiveResults]
     .map((result) => ({ ...result, source_path: result.source_path ?? sourcePath }));
 }
-import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";

@@ -7,9 +7,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
-import { extractFromBuffer, EXTRACTOR_REGISTRY, SUPPORTED_CARRIERS } from "../src/extractors.js";
+import { extractFromBuffer, EXTRACTOR_REGISTRY, MAX_CARRIER_BYTES, SUPPORTED_CARRIERS } from "../src/extractors.js";
 import { environmentPasswordCandidates, parsePasswordCandidates } from "../src/passwords.js";
-import { groupCandidates, horizonFailureStatus, isArchiveSignature, parseArgs } from "../src/cli.js";
+import { groupCandidates, horizonFailureStatus, isArchiveSignature, parseArgs, shouldSlurpArchive } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -112,8 +112,18 @@ test("archive signatures are recognized from the scan header", () => {
   assert.equal(isArchiveSignature(Buffer.from("1f8b", "hex")), true);
   const tarHeader = Buffer.alloc(512);
   tarHeader.write("ustar", 257, "ascii");
-  assert.equal(isArchiveSignature(tarHeader), true);
+  assert.equal(isArchiveSignature(tarHeader), false);
   assert.equal(isArchiveSignature(Buffer.from("00000000", "hex")), false);
+});
+
+test("only compact recognized archives are slurped into memory", () => {
+  const zip = Buffer.from("504b0304", "hex");
+  assert.equal(shouldSlurpArchive(zip, 1024), true);
+  assert.equal(shouldSlurpArchive(zip, MAX_CARRIER_BYTES), true);
+  assert.equal(shouldSlurpArchive(zip, MAX_CARRIER_BYTES + 1), false);
+  const tarHeader = Buffer.alloc(512);
+  tarHeader.write("ustar", 257, "ascii");
+  assert.equal(shouldSlurpArchive(tarHeader, 1024), false);
 });
 
 test("password search requires an explicit scope", () => {

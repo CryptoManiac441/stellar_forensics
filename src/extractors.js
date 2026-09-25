@@ -1,3 +1,10 @@
+import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 const SECRET_PATTERN = /\bS[A-Z2-7]{55}\b/g;
 
 export const SUPPORTED_CARRIERS = [
@@ -149,29 +156,7 @@ async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded, onA
     for (const password of ["", ...passwords]) {
       try {
         await execFileAsync(executable, ["x", archivePath, `-o${outputPath}`, "-y", password ? `-p${password}` : "-p"], { windowsHide: true });
-        const results = [];
-        async function walk(directory) {
-          for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-            const memberPath = path.join(directory, entry.name);
-            if (entry.isDirectory()) await walk(memberPath);
-            else {
-              const memberBuffer = await fs.readFile(memberPath);
-              onDecoded?.(memberBuffer, { extractor: "archive-member", source: `${sourcePath}::${path.relative(outputPath, memberPath)}` });
-              const extracted = await extractFromBuffer(
-                memberBuffer,
-                `${sourcePath}::${path.relative(outputPath, memberPath)}`,
-                { passwords, onDecoded }
-              );
-              results.push(...extracted.map((result) => ({
-                ...result,
-                extractor: `archive/${result.extractor}`,
-                password_source: password ? "candidate" : "none"
-              })));
-            }
-          }
-        }
-        await walk(outputPath);
-        return results;
+        return walkExtractedMembers(outputPath, sourcePath, passwords, onDecoded, onArchiveEvent, password);
       } catch (error) {
         onArchiveEvent?.({
           source: sourcePath,
@@ -187,6 +172,43 @@ async function extractWithSevenZip(buffer, sourcePath, passwords, onDecoded, onA
     await fs.rm(temporaryRoot, { recursive: true, force: true });
   }
   return [];
+}
+
+export async function walkExtractedMembers(outputPath, sourcePath, passwords, onDecoded, onArchiveEvent, password) {
+  const results = [];
+  async function walk(directory) {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const memberPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(memberPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      try {
+        const memberBuffer = await fs.readFile(memberPath);
+        onDecoded?.(memberBuffer, { extractor: "archive-member", source: `${sourcePath}::${path.relative(outputPath, memberPath)}` });
+        const extracted = await extractFromBuffer(
+          memberBuffer,
+          `${sourcePath}::${path.relative(outputPath, memberPath)}`,
+          { passwords, onDecoded }
+        );
+        results.push(...extracted.map((result) => ({
+          ...result,
+          extractor: `archive/${result.extractor}`,
+          password_source: password ? "candidate" : "none"
+        })));
+      } catch (error) {
+        onArchiveEvent?.({
+          source: sourcePath,
+          status: "member_failed",
+          member: path.relative(outputPath, memberPath),
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  }
+  await walk(outputPath);
+  return results;
 }
 
 export async function extractFromBuffer(buffer, sourcePath, options = {}) {
@@ -219,9 +241,3 @@ export async function extractFromBuffer(buffer, sourcePath, options = {}) {
   return [...results, ...compressed, ...archiveResults]
     .map((result) => ({ ...result, source_path: result.source_path ?? sourcePath }));
 }
-import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";

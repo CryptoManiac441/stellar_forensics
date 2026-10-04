@@ -3,6 +3,16 @@ import path from "node:path";
 
 const PASSWORD_LINE = /^\s*(?:password|passwd|passphrase|archive[_ -]?password)\s*[:=]\s*(\S.*)$/i;
 
+export function decodePasswordFileText(buffer) {
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    return buffer.subarray(2).toString("utf16le");
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
+    return new TextDecoder("utf-16be").decode(buffer.subarray(2));
+  }
+  return buffer.toString("utf8");
+}
+
 export function parsePasswordCandidates(text) {
   const candidates = [];
   for (const line of text.split(/\r?\n/)) {
@@ -46,7 +56,7 @@ export async function findPasswordCandidates({ allDrives = false, files = [] } =
     if (!stat.isFile() || visited.has(target) || stat.size > 10 * 1024 * 1024) return;
     visited.add(target);
     try {
-      const text = await fs.readFile(target, "utf8");
+      const text = decodePasswordFileText(await fs.readFile(target));
       for (const candidate of parsePasswordCandidates(text)) candidates.add(candidate);
     } catch {
       // Ignore unreadable and binary files; the caller can still prompt.

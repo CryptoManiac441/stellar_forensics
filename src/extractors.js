@@ -14,7 +14,16 @@ export const SUPPORTED_CARRIERS = [
 ];
 
 function strings(buffer) {
-  return buffer.toString("latin1").match(SECRET_PATTERN) ?? [];
+  // Windows Notepad "Unicode" and many forensic text artifacts are UTF-16 LE.
+  // Searching only latin1 misses S... keys stored as wide characters.
+  const texts = [buffer.toString("latin1"), buffer.toString("utf16le")];
+  if (buffer.length > 1) texts.push(buffer.subarray(1).toString("utf16le"));
+  const found = [];
+  for (const text of texts) {
+    SECRET_PATTERN.lastIndex = 0;
+    found.push(...(text.match(SECRET_PATTERN) ?? []));
+  }
+  return unique(found);
 }
 function unique(values) {
   return [...new Set(values)];

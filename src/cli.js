@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { extractFromBuffer, SUPPORTED_CARRIERS } from "./extractors.js";
-import { environmentPasswordCandidates, findPasswordCandidates } from "./passwords.js";
+import { environmentPasswordCandidates, findPasswordCandidates, parsePasswordFile } from "./passwords.js";
 
 const DEFAULT_HORIZON = "https://horizon.stellar.org";
 
@@ -89,7 +89,8 @@ async function passwordCandidates(options, logger) {
     if (value) candidates.push(value);
   }
   if (options["password-file"]) {
-    candidates.push(...await findPasswordCandidates({ files: [path.resolve(options["password-file"])] }));
+    const passwordFile = path.resolve(options["password-file"]);
+    candidates.push(...parsePasswordFile(await fs.readFile(passwordFile, "utf8")));
   }
   const unique = [...new Set(candidates)];
   logger.write("password_candidates_found", {

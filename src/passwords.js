@@ -3,11 +3,26 @@ import path from "node:path";
 
 const PASSWORD_LINE = /^\s*(?:password|passwd|passphrase|archive[_ -]?password)\s*[:=]\s*(\S.*)$/i;
 
+function stripPasswordQuotes(value) {
+  return value.trim().replace(/^["']|["']$/g, "");
+}
+
 export function parsePasswordCandidates(text) {
   const candidates = [];
   for (const line of text.split(/\r?\n/)) {
     const match = line.match(PASSWORD_LINE);
-    if (match?.[1]) candidates.push(match[1].trim().replace(/^["']|["']$/g, ""));
+    if (match?.[1]) candidates.push(stripPasswordQuotes(match[1]));
+  }
+  return [...new Set(candidates)].filter(Boolean);
+}
+
+export function parsePasswordFile(text) {
+  const candidates = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const labeled = trimmed.match(PASSWORD_LINE);
+    candidates.push(stripPasswordQuotes(labeled?.[1] ?? trimmed));
   }
   return [...new Set(candidates)].filter(Boolean);
 }

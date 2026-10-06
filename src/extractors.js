@@ -1,4 +1,12 @@
+import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
+import { promisify } from "node:util";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 const SECRET_PATTERN = /\bS[A-Z2-7]{55}\b/g;
+const MAX_PNG_TEXT_BYTES = 16 * 1024 * 1024;
 
 export const SUPPORTED_CARRIERS = [
   "text",
@@ -18,6 +26,43 @@ function strings(buffer) {
 }
 function unique(values) {
   return [...new Set(values)];
+}
+
+function inflatePngText(buffer) {
+  try {
+    return inflateSync(buffer, { maxOutputLength: MAX_PNG_TEXT_BYTES });
+  } catch {
+    return null;
+  }
+}
+
+function decodePngTextChunk(type, data) {
+  switch (type) {
+    case "tEXt":
+      return data;
+    case "zTXt": {
+      const separator = data.indexOf(0);
+      if (separator < 0 || separator + 2 > data.length || data[separator + 1] !== 0) return data;
+      const inflated = inflatePngText(data.subarray(separator + 2));
+      return inflated ? Buffer.concat([data.subarray(0, separator + 2), inflated]) : data;
+    }
+    case "iTXt": {
+      const keywordEnd = data.indexOf(0);
+      if (keywordEnd < 0 || keywordEnd + 3 > data.length) return data;
+      const compressionFlag = data[keywordEnd + 1];
+      const compressionMethod = data[keywordEnd + 2];
+      if (compressionFlag === 0) return data;
+      if (compressionFlag !== 1 || compressionMethod !== 0) return data;
+      const languageEnd = data.indexOf(0, keywordEnd + 3);
+      if (languageEnd < 0) return data;
+      const translatedEnd = data.indexOf(0, languageEnd + 1);
+      if (translatedEnd < 0) return data;
+      const inflated = inflatePngText(data.subarray(translatedEnd + 1));
+      return inflated ? Buffer.concat([data.subarray(0, translatedEnd + 1), inflated]) : data;
+    }
+    default:
+      return data;
+  }
 }
 
 function payloadResult(secrets, extractor, details = {}) {
@@ -69,8 +114,9 @@ function extractPng(buffer, onDecoded) {
     const dataEnd = dataStart + length;
     if (dataEnd + 4 > buffer.length) break;
     if (["tEXt", "zTXt", "iTXt"].includes(type)) {
-      onDecoded?.(buffer.subarray(dataStart, dataEnd), { extractor: "png-chunk", chunk: type, offset: dataStart });
-      results.push(...payloadResult(strings(buffer.subarray(dataStart, dataEnd)), "png-chunk", { chunk: type, offset: dataStart }));
+      const payload = decodePngTextChunk(type, buffer.subarray(dataStart, dataEnd));
+      onDecoded?.(payload, { extractor: "png-chunk", chunk: type, offset: dataStart });
+      results.push(...payloadResult(strings(payload), "png-chunk", { chunk: type, offset: dataStart }));
     }
     offset = dataEnd + 4;
     if (type === "IEND") break;
@@ -219,9 +265,3 @@ export async function extractFromBuffer(buffer, sourcePath, options = {}) {
   return [...results, ...compressed, ...archiveResults]
     .map((result) => ({ ...result, source_path: result.source_path ?? sourcePath }));
 }
-import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
